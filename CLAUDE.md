@@ -121,8 +121,14 @@ npm run dev          # dev server, then open the detector debug page
 npm run build        # typecheck + production build
 npm run test         # all tests (~25s; the eval harness dominates)
 npm run test:audio   # detector eval only — prints the confusion matrix
+npm run test:browser # build first; checks the AudioWorklet loads in a real browser
 npm run typecheck
 ```
+
+`test:browser` covers the one thing unit tests cannot: whether the worklet module actually
+loads and registers. Everything else is pure TypeScript. It uses an OfflineAudioContext,
+not a microphone — this container and most CI have no audio device at all, so
+`getUserMedia` fails with `NotFoundError` and mic paths cannot be exercised here.
 
 ## Testing audio changes
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CalibrationOutcome } from '../audio/calibration';
 import type { StringIndex } from '../types';
-import { AudioEngine, type MicStatus, type VerdictUpdate } from '../audio/engine';
+import { AudioEngine, runSelfTest, type MicStatus, type SelfTestResult, type VerdictUpdate } from '../audio/engine';
 import { describeDiagnosis } from '../audio/verdict';
 import { CONFIG } from '../config';
 import { SHAPES, getShape, resolveShape } from '../music/shapes';
@@ -31,6 +31,7 @@ export function DebugPage({ onBack }: { onBack?: () => void }) {
   const [history, setHistory] = useState<string[]>([]);
   const [calibration, setCalibration] = useState<CalibrationOutcome | null>(null);
   const [arpeggioNext, setArpeggioNext] = useState<StringIndex | null>(null);
+  const [selfTest, setSelfTest] = useState<SelfTestResult | 'running' | null>(null);
 
   const shape = useMemo(() => getShape(shapeId), [shapeId]);
   const target = useMemo(() => resolveShape(shape), [shape]);
@@ -250,6 +251,32 @@ export function DebugPage({ onBack }: { onBack?: () => void }) {
         ) : (
           <p style={{ margin: 0 }}>Nothing yet. Start listening and strum the chord.</p>
         )}
+      </div>
+
+      <div className="card">
+        <div className="row spread">
+          <div className="stack" style={{ flex: 1 }}>
+            <strong>Self-test</strong>
+            <span className="muted">
+              Runs a synthesised chord through the real detector without using your
+              microphone. Tells you whether a problem is the app or your audio setup.
+            </span>
+          </div>
+          <button
+            onClick={async () => {
+              setSelfTest('running');
+              setSelfTest(await runSelfTest());
+            }}
+            disabled={selfTest === 'running'}
+          >
+            {selfTest === 'running' ? 'Running…' : 'Run'}
+          </button>
+        </div>
+        {selfTest && selfTest !== 'running' ? (
+          <div className={`banner ${selfTest.ok ? 'ok' : 'bad'}`} style={{ marginTop: 12, marginBottom: 0 }}>
+            {selfTest.detail}
+          </div>
+        ) : null}
       </div>
 
       <FixtureRecorder

@@ -19,3 +19,19 @@ jobs:
       # Enforces the detector accuracy floor: >=95% true-accept, <=2% false-accept.
       # The confusion matrix is printed in the job log.
       - run: npm run test
+
+  browser:
+    # Separate job: the only thing unit tests cannot cover is whether the AudioWorklet
+    # actually loads and registers in a browser, which depends on the build emitting it as
+    # a reachable chunk. Runs against an OfflineAudioContext, so no audio device needed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:browser

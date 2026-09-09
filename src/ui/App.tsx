@@ -151,10 +151,19 @@ export function App() {
       engine.configure(settings.tuningId, settings.sensitivity);
       engine.calibrate(settings.tuningId);
     } catch (e) {
+      // Say what actually went wrong. "Could not open the microphone" with no detail is a
+      // dead end: the user cannot tell a denied permission from a device in use by another
+      // tab from a browser that does not support the audio worklet, and each has a
+      // different fix.
+      const err = e instanceof Error ? e : new Error(String(e));
       setError(
-        e instanceof Error && e.name === 'NotAllowedError'
-          ? 'Microphone access was denied. The app needs it to hear your ukulele — there is no other way for cards to advance on their own.'
-          : 'Could not open the microphone.',
+        err.name === 'NotAllowedError'
+          ? 'Microphone access was denied. The app needs it to hear your ukulele — there is no other way for cards to advance on their own. Allow it in your browser’s address bar and try again.'
+          : err.name === 'NotFoundError'
+            ? 'No microphone was found. Plug one in, or check your system sound settings.'
+            : err.name === 'NotReadableError'
+              ? 'The microphone is busy — another tab or app is probably using it. Close that and try again.'
+              : `Could not start listening. ${err.name}: ${err.message}`,
       );
     } finally {
       setBusy(false);
