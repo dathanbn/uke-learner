@@ -3,9 +3,13 @@
 Spaced-repetition ukulele chord trainer. Cards are answered by playing the chord on a real
 ukulele; the app listens through the microphone, verifies it, and advances hands-free.
 
-**Current state:** the audio engine and the scheduler both work and are under test.
-Detection, calibration, FSRS scheduling, the session model, IndexedDB storage and a debug
-UI are built. The session UI (Prompt 4) is next. See `docs/BUILD_PROMPT.md`.
+**Current state:** end-to-end playable. Detection, calibration, FSRS scheduling, the
+session model, IndexedDB storage, the practice UI and a detector debug page are all built
+and tested (75 tests). Not yet built: transition cards, ear-training cards, the arpeggio
+tuner fallback, PWA/offline, and settings. See `docs/BUILD_PROMPT.md`.
+
+**Never verified with a real ukulele.** Everything is tuned against synthetic audio. The
+first session with an actual instrument will find things nothing here can predict.
 
 ## Push back when I'm wrong
 

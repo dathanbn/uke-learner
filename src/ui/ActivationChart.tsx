@@ -1,5 +1,5 @@
 import { CONFIG } from '../config';
-import { noteName } from '../music/pitch';
+import { noteName, pitchClass } from '../music/pitch';
 import { midi, type MidiNote } from '../types';
 
 /**
@@ -33,7 +33,9 @@ export function ActivationChart({
               className={`bar ${isTarget ? 'target' : strong ? 'strong' : ''}`}
               style={{ height: `${Math.max(1, v * 100)}%` }}
             />
-            <div className="tick">{name.startsWith('C') || isTarget ? name : ''}</div>
+            {/* Label the C of each octave as a ruler, plus every target note. Matching
+                on the name would also label C#, which makes the axis unreadable. */}
+            <div className="tick">{pitchClass(note) === 0 || isTarget ? name : ''}</div>
           </div>
         );
       })}

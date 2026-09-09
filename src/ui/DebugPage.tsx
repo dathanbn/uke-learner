@@ -17,7 +17,7 @@ const RANGE = CONFIG.range.highNote - CONFIG.range.lowNote + 1;
  * scheduler and the session flow are wasted work — so the first thing the project builds
  * is the thing that lets you stand there with a ukulele and find out.
  */
-export function DebugPage() {
+export function DebugPage({ onBack }: { onBack?: () => void }) {
   const engineRef = useRef<AudioEngine | null>(null);
   const [status, setStatus] = useState<MicStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -104,13 +104,16 @@ export function DebugPage() {
             Pick a chord, play it, and watch what the detector hears.
           </p>
         </div>
-        {status ? (
-          <button onClick={stop}>Stop listening</button>
-        ) : (
-          <button className="primary" onClick={start}>
-            Start listening
-          </button>
-        )}
+        <div className="row">
+          {onBack ? <button onClick={() => { void stop(); onBack(); }}>Back</button> : null}
+          {status ? (
+            <button onClick={stop}>Stop listening</button>
+          ) : (
+            <button className="primary" onClick={start}>
+              Start listening
+            </button>
+          )}
+        </div>
       </div>
 
       {error ? <div className="banner bad">{error}</div> : null}

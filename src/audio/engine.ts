@@ -63,6 +63,11 @@ export class AudioEngine {
     return ctx ? (ctx.baseLatency ?? 0) * 1000 : 0;
   }
 
+  /** Replace handlers on a running engine, so screens can take over the callbacks. */
+  setHandlers(handlers: EngineHandlers): void {
+    this.handlers = { ...this.handlers, ...handlers };
+  }
+
   async start(handlers: EngineHandlers): Promise<MicStatus> {
     this.handlers = handlers;
 

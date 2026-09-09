@@ -4,9 +4,16 @@ A spaced-repetition chord trainer for ukulele. Cards are answered by **playing t
 chord on a real instrument** — the app listens through the microphone, verifies what
 you played, and advances on its own. You never take your hands off the uke.
 
-Status: **pre-code.** This repo currently holds the product spec, market research,
-and the engineering plan. See `docs/BUILD_PROMPT.md` for the milestone-by-milestone
-build sequence.
+Status: **playable, never tested on a real instrument.** The detector, tuner, scheduler,
+storage and practice UI are built and covered by 75 tests, but every number comes from
+synthesised audio. See `docs/BUILD_PROMPT.md` for what's done and what's next.
+
+```
+npm install
+npm run dev        # practice app, with a detector debug page behind "Open"
+npm run test       # everything, including the detector confusion matrix
+npm run test:audio # detector eval only
+```
 
 ## The two-sentence pitch
 
@@ -39,8 +46,17 @@ for ukulele.
 | `docs/WORKING_WITH_CLAUDE.md` | Long-term workflow for building this with Claude |
 | `docs/DECISIONS.md` | Decision log — why things are the way they are |
 
-## Planned stack
+## Stack
 
 Vite + React + TypeScript, Web Audio API (`AudioWorklet`) for the listener, `ts-fsrs`
-for scheduling, IndexedDB for storage, deployed as a static PWA on GitHub Pages.
-**No backend and no API keys for v1.**
+for scheduling, IndexedDB for storage, deployed as a static site on GitHub Pages.
+**No backend and no API keys.**
+
+| Area | Where |
+| --- | --- |
+| Chord verification, peeling, onset, scoring | `src/audio/` |
+| Tuning calibration and drift | `src/audio/calibration.ts` |
+| FSRS, session queue, budgeting | `src/srs/` |
+| Chord shapes, tunings, confusion sets | `src/music/` |
+| Screens and the card state machine | `src/ui/` |
+| Synthetic corpus and the eval harness | `test/` |

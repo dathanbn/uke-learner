@@ -17,10 +17,14 @@ feel good, the scheduler and the UI are wasted work.
 
 ---
 
-> **Status:** Prompts 0–3 are done, plus the tuner half of Prompt 5. The audio engine,
-> calibration, the eval harness, the debug page, the FSRS scheduler, the session model and
-> IndexedDB storage are built — 65 tests passing, detector at 97.8 % true-accept / 0 %
-> false-accept on synthetic audio. **Prompt 4 (session UI) is the next one to run.**
+> **Status:** Prompts 0–4 are done, plus the strum-based tuner from Prompt 5. The app is
+> playable end to end — 75 tests, detector at 97.8 % true-accept / 0 % false-accept on
+> synthetic audio.
+>
+> **Remaining:** the arpeggio tuner fallback, PWA/offline, and the settings page (rest of
+> Prompt 5); transition and ear-training cards (v1.1). But the actual next step is not a
+> prompt — it is **recording real fixtures and playing a session with a ukulele in your
+> hands.** Every number in this repo comes from synthesised audio.
 
 ## Prompt 0 — Scaffold
 
