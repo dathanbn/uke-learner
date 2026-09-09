@@ -11,10 +11,16 @@ audio. See `docs/BUILD_PROMPT.md`.
 
 ```
 npm install
-npm run dev        # practice app, with a detector debug page behind "Open"
-npm run test       # everything, including the detector confusion matrix
-npm run test:audio # detector eval only
+npm run dev          # practice app; detector debug page behind "Open"
+npm run test         # everything, including the detector confusion matrix
+npm run test:audio   # detector eval only
+npm run test:browser # build first; checks the worklet loads in a real browser
 ```
+
+**The next step is not code.** Open the debug page, press Start listening, and strum at it.
+If it feels wrong, use the fixture recorder on that page — takes download named the way the
+harness expects, and `npm run test:audio` scores them alongside the synthetic corpus. See
+`test/fixtures/README.md`.
 
 ## The two-sentence pitch
 

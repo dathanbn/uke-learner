@@ -8,8 +8,29 @@ arpeggio), FSRS scheduling, transitions, ear training, streaks, settings, offlin
 practice UI and a detector debug page are built and tested (109 tests). See
 `docs/BUILD_PROMPT.md`.
 
-**Never verified with a real ukulele.** Everything is tuned against synthetic audio. The
-first session with an actual instrument will find things nothing here can predict.
+## What has and hasn't been verified
+
+**Verified.** All logic — detection, peeling, scoring, calibration, scheduling, the card
+state machine, streaks, WAV codec — is covered by 117 headless tests. The AudioWorklet is
+confirmed to load and produce correct verdicts in a real browser (`npm run test:browser`,
+an OfflineAudioContext, no microphone). Screens render and settings persist, checked in
+Chromium.
+
+**Not verified, and this is the gap that matters.**
+
+- **No real ukulele, ever.** Every accuracy number comes from `test/synth.ts`. It has no
+  room reverb, no fret buzz, no intonation error, no microphone response. Treat 97.8 % as
+  a floor on difficulty, not a measure of field accuracy, and say so when quoting it.
+- **No microphone path has ever run.** This container has no audio device, so
+  `getUserMedia` throws `NotFoundError` and Chromium's fake capture device will not
+  enumerate either. `AudioEngine.start`, the live tuner, drift tracking and the fixture
+  recorder are all unexercised outside unit tests of the code they call.
+- **`scripts/gen-fake-mic.ts`** generates a mic feed for end-to-end testing but the flow it
+  documents has never been run. Its header says so.
+- **Ear-training playback** is verified only by round-tripping through the detector.
+  Nobody has heard whether it is pleasant to play along with.
+
+The first session with an actual instrument will find things nothing here can predict.
 
 ## Push back when I'm wrong
 
