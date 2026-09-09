@@ -17,10 +17,10 @@ feel good, the scheduler and the UI are wasted work.
 
 ---
 
-> **Status:** Prompts 0, 1 and 2 are done, plus the tuner half of Prompt 5. The audio
-> engine, calibration, the eval harness and the debug page are built and passing at
-> 97.8 % true-accept / 0 % false-accept on synthetic audio. Prompt 3 (scheduler) is the
-> next one to run.
+> **Status:** Prompts 0–3 are done, plus the tuner half of Prompt 5. The audio engine,
+> calibration, the eval harness, the debug page, the FSRS scheduler, the session model and
+> IndexedDB storage are built — 65 tests passing, detector at 97.8 % true-accept / 0 %
+> false-accept on synthetic audio. **Prompt 4 (session UI) is the next one to run.**
 
 ## Prompt 0 — Scaffold
 

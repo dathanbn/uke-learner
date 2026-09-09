@@ -49,6 +49,9 @@ card type, so it adapts to a slow beginner and a fast intermediate alike.
 FSRS is calibrated for declarative recall on a day scale. A beginner who fails an F chord
 needs to see it again in *ninety seconds*, not tomorrow. So run two queues:
 
+> **Built.** `src/srs/` implements everything below; `test/scheduler.test.ts` covers it,
+> including a 90-day simulation of a learner who cannot play F.
+
 **Layer 1 — within-session learning queue.** An `Again` card goes to the back of a short
 queue and returns after ~3 other cards, then again after ~10. It leaves the session queue
 only after one clean first-try success. This is Anki's "learning steps," and it is what
@@ -57,6 +60,13 @@ makes a 10-minute session actually teach something.
 **Layer 2 — FSRS day scheduler.** Governs whether the card appears *tomorrow, in 4 days,
 or in 3 weeks*. Only the grade from the card's **first** presentation in a session feeds
 FSRS; the repeats inside the learning queue do not, or you will corrupt the memory model.
+
+**One subtlety that is easy to get wrong and hard to notice.** Learning steps must count
+*presentations*, not position in the queue. A lapse answer doesn't advance the queue, so a
+repeat scheduled "3 cards from now" against the queue index is due immediately — and stays
+due, forever. The card the learner is struggling with then blocks the session and they see
+nothing else. This was a real bug here; the regression test is
+`does not let a repeatedly failed card block the rest of the queue`.
 
 ## Card model
 

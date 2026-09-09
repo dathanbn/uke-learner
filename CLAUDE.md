@@ -3,9 +3,9 @@
 Spaced-repetition ukulele chord trainer. Cards are answered by playing the chord on a real
 ukulele; the app listens through the microphone, verifies it, and advances hands-free.
 
-**Current state:** the audio engine works and is under test. Detection, calibration and a
-debug UI are built; the scheduler and session UI are not. See `docs/BUILD_PROMPT.md` for
-what comes next.
+**Current state:** the audio engine and the scheduler both work and are under test.
+Detection, calibration, FSRS scheduling, the session model, IndexedDB storage and a debug
+UI are built. The session UI (Prompt 4) is next. See `docs/BUILD_PROMPT.md`.
 
 ## Push back when I'm wrong
 
@@ -46,6 +46,12 @@ These are load-bearing. Breaking any of them silently breaks the product.
    diverges from the shipped code, the test suite is decoration.
 7. **Local-first.** IndexedDB is the source of truth. No network call is ever in the path
    of a practice session.
+8. **Only a card's first presentation in a session feeds FSRS.** The within-session
+   learning queue repeats a failed card; feeding those repeats to the day-scale model
+   would tell it the card was reviewed five times today and corrupt every interval after.
+9. **Learning steps count presentations, not queue position.** A lapse answer does not
+   advance the queue, so scheduling a repeat against the queue index makes it due
+   immediately and forever — one card the learner keeps failing then blocks the session.
 
 ## Domain facts — tuning and calibration
 
