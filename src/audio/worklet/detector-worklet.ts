@@ -34,12 +34,17 @@ interface ConfigureMessage {
   tuningId: string;
   sensitivity: number;
 }
+interface ArpeggioMessage {
+  type: 'arpeggio';
+  tuningId: string | null;
+}
 type InboundMessage =
   | SetTargetMessage
   | SetReferenceMessage
   | ResetMessage
   | CalibrateMessage
-  | ConfigureMessage;
+  | ConfigureMessage
+  | ArpeggioMessage;
 
 class DetectorProcessor extends AudioWorkletProcessor {
   private readonly pipeline: DetectionPipeline;
@@ -58,7 +63,10 @@ class DetectorProcessor extends AudioWorkletProcessor {
       else if (msg.type === 'reference') this.pipeline.setReference(referenceFromOffset(cents(msg.offsetCents)));
       else if (msg.type === 'reset') this.pipeline.reset();
       else if (msg.type === 'calibrate') this.pipeline.armCalibration(msg.tuningId);
-      else if (msg.type === 'configure') {
+      else if (msg.type === 'arpeggio') {
+        if (msg.tuningId) this.pipeline.armArpeggio(msg.tuningId);
+        else this.pipeline.cancelArpeggio();
+      } else if (msg.type === 'configure') {
         this.pipeline.tuningId = msg.tuningId;
         this.pipeline.sensitivity = msg.sensitivity;
       }
@@ -107,6 +115,8 @@ class DetectorProcessor extends AudioWorkletProcessor {
         this.port.postMessage({ kind: 'onset' });
       } else if (ev.kind === 'calibration') {
         this.port.postMessage({ kind: 'calibration', outcome: ev.outcome });
+      } else if (ev.kind === 'arpeggio') {
+        this.port.postMessage({ kind: 'arpeggio', reading: ev.reading, next: ev.next });
       } else {
         this.port.postMessage({
           kind: 'verdict',

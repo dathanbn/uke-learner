@@ -4,9 +4,10 @@ A spaced-repetition chord trainer for ukulele. Cards are answered by **playing t
 chord on a real instrument** — the app listens through the microphone, verifies what
 you played, and advances on its own. You never take your hands off the uke.
 
-Status: **playable, never tested on a real instrument.** The detector, tuner, scheduler,
-storage and practice UI are built and covered by 75 tests, but every number comes from
-synthesised audio. See `docs/BUILD_PROMPT.md` for what's done and what's next.
+Status: **feature-complete for v1, never tested on a real instrument.** Detection, both
+tuner modes, the scheduler, transitions, ear training, settings, offline support and the
+practice UI are built and covered by 109 tests — but every number comes from synthesised
+audio. See `docs/BUILD_PROMPT.md`.
 
 ```
 npm install
@@ -59,4 +60,5 @@ for scheduling, IndexedDB for storage, deployed as a static site on GitHub Pages
 | FSRS, session queue, budgeting | `src/srs/` |
 | Chord shapes, tunings, confusion sets | `src/music/` |
 | Screens and the card state machine | `src/ui/` |
+| Chord playback for ear training | `src/audio/synth.ts` |
 | Synthetic corpus and the eval harness | `test/` |

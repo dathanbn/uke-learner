@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CalibrationOutcome } from '../audio/calibration';
+import type { StringIndex } from '../types';
 import { AudioEngine, type MicStatus } from '../audio/engine';
 import { SpeedModel } from '../srs/grading';
-import { buildDeck, buildTransitions, knownShapes, Scheduler } from '../srs/scheduler';
+import {
+  buildDeck,
+  buildEarCards,
+  buildTransitions,
+  knownShapes,
+  Scheduler,
+} from '../srs/scheduler';
 import { Session } from '../srs/session';
 import { EMPTY_STREAK, recordPractice, type StreakState } from '../srs/streak';
 import type { Card, PresentationType, ReviewLog, SessionSettings } from '../srs/types';
@@ -13,10 +20,11 @@ import { HomeScreen } from './HomeScreen';
 import { SessionScreen } from './SessionScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { SummaryScreen } from './SummaryScreen';
+import { WelcomeScreen } from './WelcomeScreen';
 import { TunerPanel } from './TunerPanel';
 import './theme.css';
 
-type Screen = 'home' | 'calibrate' | 'session' | 'summary' | 'debug' | 'settings';
+type Screen = 'home' | 'calibrate' | 'session' | 'summary' | 'debug' | 'settings' | 'welcome';
 
 const SECONDS_PER_CARD: [PresentationType, number][] = [
   ['name_to_play', 8],
@@ -27,6 +35,7 @@ const SECONDS_PER_CARD: [PresentationType, number][] = [
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('home');
+  const [needsWelcome, setNeedsWelcome] = useState(false);
   const [settings, setSettings] = useState<SessionSettings>(DEFAULT_SETTINGS);
   const [cards, setCards] = useState<Card[]>([]);
   const [store, setStore] = useState<Store | null>(null);
@@ -34,6 +43,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [micStatus, setMicStatus] = useState<MicStatus | null>(null);
   const [calibration, setCalibration] = useState<CalibrationOutcome | null>(null);
+  const [arpeggioNext, setArpeggioNext] = useState<StringIndex | null>(null);
   const [lastLogs, setLastLogs] = useState<readonly ReviewLog[]>([]);
   const [streak, setStreak] = useState<StreakState>(EMPTY_STREAK);
 
@@ -58,6 +68,10 @@ export function App() {
         const samples = await s.getMeta<number[]>('speedSamples');
         if (samples) speedRef.current = SpeedModel.fromJSON(samples);
         setStreak((await s.getMeta<StreakState>('streak')) ?? EMPTY_STREAK);
+        if (!(await s.getMeta<boolean>('welcomed'))) {
+          setNeedsWelcome(true);
+          setScreen('welcome');
+        }
       } catch {
         // A private window with storage blocked shouldn't stop someone practising —
         // they just won't keep their progress.
@@ -90,6 +104,7 @@ export function App() {
         // Unlocked progressively: a transition only appears once both its chords are
         // themselves solid, so the drill is the change rather than the shapes.
         ...buildTransitions(scheduler, s, knownShapes(cards)),
+        ...buildEarCards(scheduler, s, knownShapes(cards)),
       ];
       const have = new Set(cards.map((c) => c.id));
       const missing = wanted.filter((c) => !have.has(c.id));
@@ -107,8 +122,10 @@ export function App() {
     setSettings(DEFAULT_SETTINGS);
     setCards(deck);
     setStreak(EMPTY_STREAK);
+    // Erasing progress puts someone back to a genuinely fresh install, welcome included.
+    setNeedsWelcome(true);
     await store?.putCards(deck);
-    setScreen('home');
+    setScreen('welcome');
   }, [store]);
 
   const beginCalibration = useCallback(async () => {
@@ -118,7 +135,9 @@ export function App() {
       const engine = new AudioEngine();
       engineRef.current = engine;
       const status = await engine.start({
+        onArpeggioProgress: (_reading, next) => setArpeggioNext(next),
         onCalibration: (o) => {
+          setArpeggioNext(null);
           setCalibration(o);
           // Move the detector onto this instrument's actual tuning. A uniformly flat uke
           // is in tune with itself, so there is nothing for the learner to fix.
@@ -161,9 +180,11 @@ export function App() {
     // Chords that became solid during this session may have unlocked new transitions.
     const scheduler = new Scheduler(settings.requestRetention);
     const have = new Set(updated.map((c) => c.id));
-    const unlocked = buildTransitions(scheduler, settings, knownShapes(updated)).filter(
-      (c) => !have.has(c.id),
-    );
+    const known = knownShapes(updated);
+    const unlocked = [
+      ...buildTransitions(scheduler, settings, known),
+      ...buildEarCards(scheduler, settings, known),
+    ].filter((c) => !have.has(c.id));
     if (unlocked.length) {
       updated = [...updated, ...unlocked];
       await store?.putCards(unlocked);
@@ -191,11 +212,24 @@ export function App() {
     await engineRef.current?.stop();
     engineRef.current = null;
     setCalibration(null);
+    setArpeggioNext(null);
     setMicStatus(null);
     setScreen('home');
   }, []);
 
   useEffect(() => () => void engineRef.current?.stop(), []);
+
+  if (screen === 'welcome' && needsWelcome) {
+    return (
+      <WelcomeScreen
+        onContinue={() => {
+          setNeedsWelcome(false);
+          void store?.setMeta('welcomed', true);
+          setScreen('home');
+        }}
+      />
+    );
+  }
 
   if (screen === 'debug') return <DebugPage onBack={goHome} />;
 
@@ -219,6 +253,7 @@ export function App() {
       <SessionScreen
         session={sessionRef.current}
         engine={engineRef.current}
+        tuningId={settings.tuningId}
         onFinish={() => void finishSession()}
       />
     );
@@ -232,6 +267,10 @@ export function App() {
 
   if (screen === 'calibrate') {
     const ready = calibration?.kind === 'in_tune' || calibration?.kind === 'auto_adjusted';
+    // An instrument that won't come into tune must not block practice outright. Somebody
+    // with a cheap uke that simply cannot intonate, or an old string that won't hold, is
+    // still better served drilling shapes than being locked out of their own app.
+    const canProceedAnyway = calibration !== null && !ready;
     return (
       <div className="app">
         <h1>Let's hear your ukulele</h1>
@@ -249,18 +288,38 @@ export function App() {
         <TunerPanel
           outcome={calibration}
           listening
+          tuningId={settings.tuningId}
+          arpeggioNext={arpeggioNext}
+          onArpeggio={(startArp) => {
+            setArpeggioNext(startArp ? 0 : null);
+            setCalibration(null);
+            engineRef.current?.calibrateArpeggio(startArp ? settings.tuningId : null);
+          }}
           onRecalibrate={() => {
             setCalibration(null);
+            setArpeggioNext(null);
+            engineRef.current?.calibrateArpeggio(null);
             engineRef.current?.calibrate(settings.tuningId);
           }}
         />
 
         <div className="row spread">
           <button onClick={() => void goHome()}>Back</button>
-          <button className="primary" onClick={() => void startSession()} disabled={!ready}>
-            {ready ? 'Start practising' : 'Waiting for a strum…'}
-          </button>
+          <div className="row">
+            {canProceedAnyway ? (
+              <button onClick={() => void startSession()}>Practise anyway</button>
+            ) : null}
+            <button className="primary" onClick={() => void startSession()} disabled={!ready}>
+              {ready ? 'Start practising' : 'Waiting for a strum…'}
+            </button>
+          </div>
         </div>
+        {canProceedAnyway ? (
+          <p className="muted" style={{ marginTop: 10 }}>
+            You can practise on an out-of-tune instrument — the app will just be less sure
+            of itself, and you'll be learning shapes against sounds that aren't quite right.
+          </p>
+        ) : null}
       </div>
     );
   }

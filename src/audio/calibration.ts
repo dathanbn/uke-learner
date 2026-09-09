@@ -134,6 +134,32 @@ export const readOpenStrings = (spec: Spectrum, tuningId: string): readonly Stri
   });
 };
 
+/**
+ * Read one string played on its own.
+ *
+ * Far more accurate than picking that string out of a strum, and the reason the flow falls
+ * back to an arpeggio: with no other string sounding there are no competing partials, so
+ * the search window can be opened right up without risk of locking onto a neighbour. That
+ * is exactly what fails on a strum when the instrument is well out of tune.
+ */
+export const readSingleString = (
+  spec: Spectrum,
+  string: StringIndex,
+  expected: MidiNote,
+  windowCents = 240,
+): StringReading => {
+  const nominal = midiToHz(expected, CONCERT);
+  const est = estimateStringPitch(spec, nominal, windowCents);
+  const usable = est.strength > 0 && spec.rms > 0.004;
+  return {
+    string,
+    expected,
+    measuredHz: usable ? est.frequency : null,
+    deviationCents: usable ? cents(1200 * Math.log2(est.frequency / nominal)) : null,
+    confidence: usable ? 1 : 0,
+  };
+};
+
 const median = (xs: readonly number[]): number => {
   const s = [...xs].sort((a, b) => a - b);
   if (s.length === 0) return 0;

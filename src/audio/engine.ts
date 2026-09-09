@@ -1,4 +1,7 @@
-import type { CalibrationOutcome } from './calibration';
+import type { CalibrationOutcome, StringReading } from './calibration';
+import { playChord } from './synth';
+import type { MidiNote } from '../types';
+import type { StringIndex } from '../types';
 import type { Verdict } from '../types';
 import type { ScoredHypothesis } from './verdict';
 import workletUrl from './worklet/detector-worklet.ts?worker&url';
@@ -29,6 +32,7 @@ export interface EngineHandlers {
   onOnset?: () => void;
   onVerdict?: (v: VerdictUpdate) => void;
   onCalibration?: (o: CalibrationOutcome) => void;
+  onArpeggioProgress?: (r: StringReading, next: StringIndex | null) => void;
 }
 
 export interface MicStatus {
@@ -128,6 +132,8 @@ export class AudioEngine {
     targetConfidence?: number;
     ranked?: ScoredHypothesis[];
     outcome?: CalibrationOutcome;
+    reading?: StringReading;
+    next?: StringIndex | null;
   }): void {
     if (msg.kind === 'frame') {
       this.handlers.onFrame?.({
@@ -139,6 +145,8 @@ export class AudioEngine {
       this.handlers.onOnset?.();
     } else if (msg.kind === 'calibration' && msg.outcome) {
       this.handlers.onCalibration?.(msg.outcome);
+    } else if (msg.kind === 'arpeggio' && msg.reading) {
+      this.handlers.onArpeggioProgress?.(msg.reading, msg.next ?? null);
     } else if (msg.kind === 'verdict' && msg.verdict) {
       this.handlers.onVerdict?.({
         verdict: msg.verdict,
@@ -152,6 +160,14 @@ export class AudioEngine {
 
   setTarget(shapeId: string | null): void {
     this.node?.port.postMessage({ type: 'target', shapeId });
+  }
+
+  /**
+   * Start a guided arpeggio: the next four onsets are read as single strings in order.
+   * Pass null to cancel.
+   */
+  calibrateArpeggio(tuningId: string | null): void {
+    this.node?.port.postMessage({ type: 'arpeggio', tuningId });
   }
 
   /** Tell the detector which instrument it is listening to, and how lenient to be. */
@@ -170,6 +186,32 @@ export class AudioEngine {
   /** Apply a calibrated reference so the detector follows the instrument, not A440. */
   setReferenceOffset(offsetCents: number): void {
     this.node?.port.postMessage({ type: 'reference', offsetCents });
+  }
+
+  /**
+   * Play a chord to the learner, for ear-training cards.
+   *
+   * Uses the session's own AudioContext. Opening a second one risks being refused on iOS
+   * and can reconfigure the microphone stream mid-session.
+   *
+   * The playback is audible to the microphone, so detection is paused for its duration —
+   * otherwise the app hears its own chord and marks the card correct before the learner
+   * has touched the instrument.
+   */
+  playChord(notes: readonly (MidiNote | null)[], durationSec = 2.4): Promise<void> {
+    const ctx = this.context;
+    if (!ctx) return Promise.resolve();
+    this.setTarget(null);
+    playChord(ctx, notes, { durationSec });
+    return new Promise((resolve) => {
+      setTimeout(
+        () => {
+          this.resetDetection();
+          resolve();
+        },
+        durationSec * 1000 + 120,
+      );
+    });
   }
 
   /** Clear in-flight state between cards, so a ringing chord can't leak into the next. */

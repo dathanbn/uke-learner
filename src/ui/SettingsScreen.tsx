@@ -168,9 +168,25 @@ export function SettingsScreen({
             {Math.round(settings.requestRetention * 100)}%
           </strong>
         </div>
-        <p className="muted" style={{ marginBottom: 0 }}>
+        <p className="muted" style={{ marginBottom: 18 }}>
           Higher means chords come back sooner and you review more. 90% is the usual balance.
         </p>
+
+        <label className="row" style={{ gap: 10, alignItems: 'flex-start' }}>
+          <input
+            type="checkbox"
+            checked={settings.earTraining}
+            onChange={(e) => onChange({ ...settings, earTraining: e.target.checked })}
+            style={{ marginTop: 3 }}
+          />
+          <span className="stack" style={{ gap: 2 }}>
+            <strong>Ear training</strong>
+            <span className="muted">
+              Adds cards that play a chord for you to find. Only for chords you can already
+              play, since otherwise there's no way to answer.
+            </span>
+          </span>
+        </label>
       </div>
 
       <div className="card">

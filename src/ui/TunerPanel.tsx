@@ -2,6 +2,8 @@ import type { CalibrationOutcome } from '../audio/calibration';
 import { describeCalibration } from '../audio/calibration';
 import { CONFIG } from '../config';
 import { noteName } from '../music/pitch';
+import { getTuning } from '../music/tunings';
+import type { StringIndex } from '../types';
 
 /**
  * Tuner readout.
@@ -14,14 +16,29 @@ import { noteName } from '../music/pitch';
 export function TunerPanel({
   outcome,
   onRecalibrate,
+  onArpeggio,
+  arpeggioNext,
+  tuningId = 'high-g',
   listening,
 }: {
   outcome: CalibrationOutcome | null;
   onRecalibrate: () => void;
+  /** Start (or cancel, with null) the guided one-string-at-a-time reading. */
+  onArpeggio?: (start: boolean) => void;
+  /** Which string the arpeggio is waiting for, when one is running. */
+  arpeggioNext?: StringIndex | null;
+  tuningId?: string;
   listening: boolean;
 }) {
   const offset = outcome && outcome.kind !== 'unusable' ? outcome.offsetCents : 0;
   const span = 50; // cents shown either side of centre
+  const arpeggioRunning = arpeggioNext !== undefined && arpeggioNext !== null;
+  const openNotes = getTuning(tuningId).openNotes;
+  // Offering the arpeggio only once the strum has actually struggled keeps the simple
+  // path simple; a strum is one action and this is four.
+  const suggestArpeggio =
+    onArpeggio !== undefined &&
+    (outcome?.kind === 'unusable' || outcome?.kind === 'needs_tuning');
 
   return (
     <div className="card">
@@ -33,12 +50,30 @@ export function TunerPanel({
             absorbed automatically.
           </p>
         </div>
-        <button onClick={onRecalibrate} disabled={!listening}>
-          {outcome ? 'Check again' : 'Strum to calibrate'}
-        </button>
+        <div className="row">
+          {suggestArpeggio && !arpeggioRunning ? (
+            <button onClick={() => onArpeggio?.(true)} disabled={!listening}>
+              Go string by string
+            </button>
+          ) : null}
+          {arpeggioRunning ? (
+            <button onClick={() => onArpeggio?.(false)}>Cancel</button>
+          ) : (
+            <button onClick={onRecalibrate} disabled={!listening}>
+              {outcome ? 'Check again' : 'Strum to calibrate'}
+            </button>
+          )}
+        </div>
       </div>
 
-      {outcome ? (
+      {arpeggioRunning ? (
+        <div className="banner ok">
+          Play the <strong>{noteName(openNotes[arpeggioNext] ?? openNotes[0]!)}</strong> string
+          on its own — {4 - arpeggioNext}
+          {arpeggioNext === 3 ? 'st' : arpeggioNext === 2 ? 'nd' : arpeggioNext === 1 ? 'rd' : 'th'}{' '}
+          from the bottom. One string at a time reads far more precisely than a strum.
+        </div>
+      ) : outcome ? (
         <div
           className={`banner ${
             outcome.kind === 'needs_tuning' || outcome.kind === 'unusable' ? 'warn' : 'ok'
@@ -48,7 +83,7 @@ export function TunerPanel({
         </div>
       ) : null}
 
-      {outcome && outcome.kind !== 'unusable'
+      {!arpeggioRunning && outcome && outcome.kind !== 'unusable'
         ? outcome.readings.map((r) => {
             const rel = r.deviationCents === null ? null : r.deviationCents - offset;
             const inTune = rel !== null && Math.abs(rel) < CONFIG.calibration.ignoreBelowCents;

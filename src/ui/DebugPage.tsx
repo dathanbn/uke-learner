@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CalibrationOutcome } from '../audio/calibration';
+import type { StringIndex } from '../types';
 import { AudioEngine, type MicStatus, type VerdictUpdate } from '../audio/engine';
 import { describeDiagnosis } from '../audio/verdict';
 import { CONFIG } from '../config';
@@ -28,6 +29,7 @@ export function DebugPage({ onBack }: { onBack?: () => void }) {
   const [onsetFlash, setOnsetFlash] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
   const [calibration, setCalibration] = useState<CalibrationOutcome | null>(null);
+  const [arpeggioNext, setArpeggioNext] = useState<StringIndex | null>(null);
 
   const shape = useMemo(() => getShape(shapeId), [shapeId]);
   const target = useMemo(() => resolveShape(shape), [shape]);
@@ -47,7 +49,9 @@ export function DebugPage({ onBack }: { onBack?: () => void }) {
           setActivation(f.activation);
         },
         onOnset: () => setOnsetFlash(Date.now()),
+        onArpeggioProgress: (_r, next) => setArpeggioNext(next),
         onCalibration: (o) => {
+          setArpeggioNext(null);
           setCalibration(o);
           // Move the detector's reference onto the instrument. Everything scored from here
           // is measured against how this ukulele is actually tuned, not against A440.
@@ -126,7 +130,17 @@ export function DebugPage({ onBack }: { onBack?: () => void }) {
       ) : null}
       {status?.warning ? <div className="banner warn">{status.warning}</div> : null}
 
-      <TunerPanel outcome={calibration} onRecalibrate={recalibrate} listening={!!status} />
+      <TunerPanel
+        outcome={calibration}
+        onRecalibrate={recalibrate}
+        onArpeggio={(startArp) => {
+          setArpeggioNext(startArp ? 0 : null);
+          setCalibration(null);
+          engineRef.current?.calibrateArpeggio(startArp ? 'high-g' : null);
+        }}
+        arpeggioNext={arpeggioNext}
+        listening={!!status}
+      />
 
       <div className="card">
         <div className="row spread">

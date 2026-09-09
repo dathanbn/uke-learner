@@ -94,6 +94,24 @@ export const buildTransitions = (
 };
 
 /**
+ * Ear-training cards for chords the learner can already play.
+ *
+ * Gated the same way transitions are, and for the same reason: being asked to find a chord
+ * by ear that you cannot yet form is a puzzle with no way to answer it.
+ */
+export const buildEarCards = (
+  scheduler: Scheduler,
+  settings: SessionSettings,
+  knownShapeIds: ReadonlySet<string>,
+  now = new Date(),
+): Card[] =>
+  settings.earTraining
+    ? shapesForTier(settings.maxTier)
+        .filter((s) => knownShapeIds.has(s.id))
+        .map((s) => scheduler.newCard(s.id, 'ear_to_play', undefined, now))
+    : [];
+
+/**
  * A chord counts as "known" once the app is confident enough not to show it for a few
  * days. Earlier than that and transitions arrive while the shapes themselves are still
  * being learned.
@@ -103,7 +121,9 @@ export const TRANSITION_UNLOCK_DAYS = 3;
 export const knownShapes = (cards: readonly Card[]): Set<string> => {
   const byShape = new Map<string, boolean>();
   for (const c of cards) {
-    if (c.presentation === 'transition') continue;
+    // Only the shape-recall presentations gate unlocking. Counting transitions or ear
+    // cards would make unlocking circular — they can never mature before they exist.
+    if (c.presentation === 'transition' || c.presentation === 'ear_to_play') continue;
     const ok = !Scheduler.isNew(c) && c.fsrs.scheduled_days >= TRANSITION_UNLOCK_DAYS;
     byShape.set(c.shapeId, (byShape.get(c.shapeId) ?? true) && ok);
   }

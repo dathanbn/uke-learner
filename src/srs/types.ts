@@ -76,6 +76,12 @@ export interface SessionSettings {
    * which also means accepting more *wrong* playing — the expensive direction.
    */
   sensitivity: number;
+  /**
+   * Ear-training cards: hear a chord, find it. Off by default — it's a genuinely different
+   * skill from recalling a shape, and bolting it on unasked doubles the deck size for
+   * someone who only wanted to drill their fingers.
+   */
+  earTraining: boolean;
 }
 
 export const DEFAULT_SETTINGS: SessionSettings = {
@@ -85,4 +91,5 @@ export const DEFAULT_SETTINGS: SessionSettings = {
   maxTier: 1,
   requestRetention: 0.9,
   sensitivity: 1,
+  earTraining: false,
 };

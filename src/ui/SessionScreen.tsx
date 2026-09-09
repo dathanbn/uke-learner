@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AudioEngine } from '../audio/engine';
 import { describeDiagnosis } from '../audio/verdict';
-import { getShape } from '../music/shapes';
+import { getShape, resolveShape } from '../music/shapes';
 import type { Session } from '../srs/session';
 import { shapeName } from '../srs/scheduler';
 import { SmoothedEstimate } from '../srs/session';
@@ -24,10 +24,12 @@ const fmt = (seconds: number): string => {
 export function SessionScreen({
   session,
   engine,
+  tuningId,
   onFinish,
 }: {
   session: Session;
   engine: AudioEngine;
+  tuningId: string;
   onFinish: () => void;
 }) {
   const machine = useSessionMachine();
@@ -35,11 +37,13 @@ export function SessionScreen({
   const [lastVerdict, setLastVerdict] = useState<Verdict | null>(null);
   const smoother = useRef(new SmoothedEstimate(2));
   const [shownEstimate, setShownEstimate] = useState(0);
+  const [playingChord, setPlayingChord] = useState(false);
 
   const card = snapshot.current;
   const shape = useMemo(() => (card ? getShape(card.shapeId) : null), [card]);
   const toShape = useMemo(() => (card?.toShapeId ? getShape(card.toShapeId) : null), [card]);
   const isTransition = card?.presentation === 'transition' && toShape !== null;
+  const isEarTraining = card?.presentation === 'ear_to_play';
 
   const { newCard, submitVerdict } = machine;
   const { leg } = machine.state;
@@ -64,6 +68,24 @@ export function SessionScreen({
   useEffect(() => {
     engine.setTarget(activeShapeId);
   }, [engine, activeShapeId]);
+
+  /** Play the chord for an ear-training card. Detection is paused while it sounds. */
+  const hearIt = useCallback(async () => {
+    if (!card || playingChord) return;
+    setPlayingChord(true);
+    const notes = resolveShape(getShape(card.shapeId), tuningId).perString;
+    await engine.playChord(notes);
+    engine.setTarget(activeShapeId);
+    setPlayingChord(false);
+  }, [card, engine, activeShapeId, playingChord, tuningId]);
+
+  // Ear-training cards play themselves on arrival — the learner shouldn't have to reach
+  // for the screen to start a card whose whole point is not touching the screen.
+  useEffect(() => {
+    if (isEarTraining) void hearIt();
+    // Only on card change, never on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot.presentationKey, isEarTraining]);
 
   useEffect(() => {
     engine.setHandlers({
@@ -146,7 +168,11 @@ export function SessionScreen({
         <div className="muted" style={{ marginBottom: 6 }}>
           {reveal
             ? 'Here it is — play this'
-            : isTransition
+            : isEarTraining
+              ? playingChord
+                ? 'Listen…'
+                : 'Find that chord'
+              : isTransition
               ? leg === 'first'
                 ? 'Play the first chord, then change'
                 : 'Now change'
@@ -155,7 +181,12 @@ export function SessionScreen({
                 : 'Play'}
         </div>
 
-        {isTransition && toShape ? (
+        {isEarTraining && !reveal ? (
+          // The chord name is the answer, so it stays hidden until the reveal.
+          <div style={{ fontSize: 68, fontWeight: 800, letterSpacing: '-0.03em' }} aria-hidden="true">
+            ♪
+          </div>
+        ) : isTransition && toShape ? (
           // Both chords stay on screen throughout. The one being waited for is highlighted
           // rather than swapped in: seeing where you're going is the point of the drill.
           <div className="row" style={{ justifyContent: 'center', gap: 8 }}>
@@ -184,6 +215,14 @@ export function SessionScreen({
             {shapeName(card)}
           </div>
         )}
+
+        {isEarTraining && !reveal ? (
+          <div style={{ marginTop: 14 }}>
+            <button onClick={() => void hearIt()} disabled={playingChord}>
+              {playingChord ? 'Listening…' : 'Play it again'}
+            </button>
+          </div>
+        ) : null}
 
         {isTransition && machine.state.transitionMs !== null ? (
           <div className="pill ok" style={{ marginTop: 16, display: 'inline-block' }}>

@@ -3,10 +3,10 @@
 Spaced-repetition ukulele chord trainer. Cards are answered by playing the chord on a real
 ukulele; the app listens through the microphone, verifies it, and advances hands-free.
 
-**Current state:** end-to-end playable. Detection, calibration, FSRS scheduling, the
-session model, IndexedDB storage, the practice UI and a detector debug page are all built
-and tested (75 tests). Not yet built: transition cards, ear-training cards, the arpeggio
-tuner fallback, PWA/offline, and settings. See `docs/BUILD_PROMPT.md`.
+**Current state:** feature-complete for v1. Detection, calibration (strum + guided
+arpeggio), FSRS scheduling, transitions, ear training, streaks, settings, offline PWA, the
+practice UI and a detector debug page are built and tested (109 tests). See
+`docs/BUILD_PROMPT.md`.
 
 **Never verified with a real ukulele.** Everything is tuned against synthetic audio. The
 first session with an actual instrument will find things nothing here can predict.
@@ -56,6 +56,14 @@ These are load-bearing. Breaking any of them silently breaks the product.
 9. **Learning steps count presentations, not queue position.** A lapse answer does not
    advance the queue, so scheduling a repeat against the queue index makes it due
    immediately and forever — one card the learner keeps failing then blocks the session.
+10. **The UI resets on `presentationKey`, never on card id.** The same card is legitimately
+    presented twice in a row once the queue drains into the learning queue. Keying the card
+    state machine on the id freezes the app at the end of any session containing a lapse.
+11. **There is always a way out of a card.** The reveal phase assumes the learner *can*
+    form the shape; meeting a first barre chord they often can't. "Can't play this yet"
+    must stay reachable, and it grades Again rather than punishing.
+12. **Never trap someone on the calibration screen.** An instrument that won't tune is
+    still worth practising on. Offer the guided arpeggio, then let them proceed anyway.
 
 ## Domain facts — tuning and calibration
 
@@ -99,6 +107,10 @@ Consequences that are easy to get wrong:
 - Review logs are append-only. Never delete or rewrite history.
 - Chord/tuning data are data tables, not constants.
 - Card IDs are shape-based (`C_0003:name_to_play`), not name-based.
+- Shapes resolve against the *active* tuning, not the shape's own. High-G and low-G share
+  fret patterns; resolving against the wrong one reports a muted 4th string on every chord.
+- Transitions and ear cards unlock only once their chords are solid, and are excluded from
+  the "is this chord known" check — including them would make unlocking circular.
 
 ## Commands
 

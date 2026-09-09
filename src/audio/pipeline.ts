@@ -2,7 +2,15 @@ import { CONFIG } from '../config';
 import { CONCERT, type PitchReference } from '../music/pitch';
 import { type Activation, type Verdict } from '../types';
 import { averageActivations, computeActivation } from './activation';
-import { calibrate, type CalibrationOutcome } from './calibration';
+import {
+  calibrate,
+  interpretReadings,
+  readSingleString,
+  type CalibrationOutcome,
+  type StringReading,
+} from './calibration';
+import { getTuning } from '../music/tunings';
+import type { StringIndex } from '../types';
 import { OnsetDetector } from './onset';
 import { SpectrumAnalyser, type Spectrum } from './spectrum';
 import { scoreAgainstTarget, type ScoreResult } from './verdict';
@@ -41,7 +49,20 @@ export interface CalibrationEvent {
   outcome: CalibrationOutcome;
 }
 
-export type PipelineEvent = FrameEvent | OnsetEvent | VerdictEvent | CalibrationEvent;
+/** Emitted after each string of a guided arpeggio, so the UI can prompt for the next. */
+export interface ArpeggioProgressEvent {
+  kind: 'arpeggio';
+  reading: StringReading;
+  /** Which string to ask for next, or null when the sequence is complete. */
+  next: StringIndex | null;
+}
+
+export type PipelineEvent =
+  | FrameEvent
+  | OnsetEvent
+  | VerdictEvent
+  | CalibrationEvent
+  | ArpeggioProgressEvent;
 
 interface PendingWindow {
   onsetSample: number;
@@ -75,6 +96,7 @@ export class DetectionPipeline {
   tuningId: string;
   sensitivity: number;
   private calibrationTuning: string | null = null;
+  private arpeggio: { tuningId: string; index: number; readings: StringReading[] } | null = null;
 
   constructor(private readonly opts: PipelineOptions) {
     this.analyser = new SpectrumAnalyser(opts.sampleRate);
@@ -106,10 +128,30 @@ export class DetectionPipeline {
     this.calibrationTuning = tuningId;
   }
 
+  /**
+   * Begin a guided arpeggio: the next four onsets are read as single strings, in order.
+   *
+   * The fallback when a strum reading is ambiguous — and the only thing that works when
+   * the instrument is far enough out that each string has drifted into its neighbour's
+   * search window, which is precisely when the learner most needs a tuner.
+   */
+  armArpeggio(tuningId: string): void {
+    this.calibrationTuning = null;
+    this.arpeggio = { tuningId, index: 0, readings: [] };
+    this.pending = null;
+    this.onsets.reset();
+  }
+
+  cancelArpeggio(): void {
+    this.arpeggio = null;
+  }
+
   /** Discard in-flight state — call between cards so a ringing chord can't leak across. */
   reset(): void {
     this.onsets.reset();
     this.pending = null;
+    this.arpeggio = null;
+    this.calibrationTuning = null;
   }
 
   /**
@@ -146,14 +188,33 @@ export class DetectionPipeline {
         // The Spectrum aliases the analyser's internal buffer, so it must be copied to
         // outlive this frame. Only done when calibration is armed — it is an allocation
         // on the audio thread, which is exactly what the hot path avoids.
-        if (this.calibrationTuning && spec.rms > p.calibrationRms) {
+        if ((this.calibrationTuning || this.arpeggio) && spec.rms > p.calibrationRms) {
           p.calibrationRms = spec.rms;
           p.calibrationSpectrum = { ...spec, mag: Float64Array.from(spec.mag) };
         }
       }
       if (sampleIndex > p.endSample) {
         this.pending = null;
-        if (this.calibrationTuning && p.calibrationSpectrum) {
+        if (this.arpeggio && p.calibrationSpectrum) {
+          const arp = this.arpeggio;
+          const open = getTuning(arp.tuningId).openNotes;
+          const string = arp.index as StringIndex;
+          const expected = open[string];
+          if (expected !== undefined) {
+            arp.readings.push(readSingleString(p.calibrationSpectrum, string, expected));
+          }
+          arp.index++;
+          const done = arp.index >= open.length;
+          events.push({
+            kind: 'arpeggio',
+            reading: arp.readings[arp.readings.length - 1]!,
+            next: done ? null : (arp.index as StringIndex),
+          });
+          if (done) {
+            events.push({ kind: 'calibration', outcome: interpretReadings(arp.readings) });
+            this.arpeggio = null;
+          }
+        } else if (this.calibrationTuning && p.calibrationSpectrum) {
           events.push({
             kind: 'calibration',
             outcome: calibrate(p.calibrationSpectrum, this.calibrationTuning),
