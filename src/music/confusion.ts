@@ -26,13 +26,14 @@ const variant = (
   idSuffix: string,
   label: string,
   string: number | null,
+  tuningId?: string,
 ): Hypothesis => {
   const mutated: ChordShape = {
     ...shape,
     id: `${shape.id}~${idSuffix}`,
     frets: toFretTuple(frets),
   };
-  return { id: mutated.id, label, target: resolveShape(mutated), string };
+  return { id: mutated.id, label, target: resolveShape(mutated, tuningId), string };
 };
 
 const sameNotes = (a: readonly MidiNote[], b: readonly MidiNote[]): boolean =>
@@ -46,8 +47,8 @@ const sameNotes = (a: readonly MidiNote[], b: readonly MidiNote[]): boolean =>
  * Hypotheses that resolve to the target's own pitches are dropped — they aren't wrong,
  * they're the same sound, and keeping them would make the margin test unsatisfiable.
  */
-export const confusionSet = (shape: ChordShape): readonly Hypothesis[] => {
-  const target = resolveShape(shape);
+export const confusionSet = (shape: ChordShape, tuningId?: string): readonly Hypothesis[] => {
+  const target = resolveShape(shape, tuningId);
   const base: readonly (number | null)[] = shape.frets;
   const out: Hypothesis[] = [];
 
@@ -66,6 +67,7 @@ export const confusionSet = (shape: ChordShape): readonly Hypothesis[] => {
           `s${i}${delta > 0 ? '+' : ''}${delta}`,
           `string ${4 - i} ${Math.abs(delta)} fret${Math.abs(delta) > 1 ? 's' : ''} ${delta > 0 ? 'sharp' : 'flat'}`,
           i,
+          tuningId,
         ),
       );
     }
@@ -74,14 +76,14 @@ export const confusionSet = (shape: ChordShape): readonly Hypothesis[] => {
     if (f !== null && f > 0) {
       const frets = [...base];
       frets[i] = 0;
-      out.push(variant(shape, frets, `s${i}open`, `string ${4 - i} not pressed down`, i));
+      out.push(variant(shape, frets, `s${i}open`, `string ${4 - i} not pressed down`, i, tuningId));
     }
 
     // A neighbouring finger damping the string entirely.
     if (f !== null) {
       const frets = [...base];
       frets[i] = null;
-      out.push(variant(shape, frets, `s${i}mute`, `string ${4 - i} muted`, i));
+      out.push(variant(shape, frets, `s${i}mute`, `string ${4 - i} muted`, i, tuningId));
     }
   });
 
@@ -96,6 +98,7 @@ export const confusionSet = (shape: ChordShape): readonly Hypothesis[] => {
         `shift${delta > 0 ? '+' : ''}${delta}`,
         `whole shape one fret ${delta > 0 ? 'high' : 'low'}`,
         null,
+        tuningId,
       ),
     );
   }

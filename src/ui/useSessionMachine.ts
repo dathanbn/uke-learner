@@ -16,8 +16,24 @@ import type { Verdict } from '../types';
 
 export type Phase = 'prompt' | 'retry' | 'reveal' | 'graded';
 
+/**
+ * Which half of a transition card is being played.
+ *
+ * Transition cards are the reason this exists. Nobody struggles to *hold* a C; everybody
+ * struggles to get from C to F in time, and that is the skill that gates playing actual
+ * songs. It is also the thing this interface can measure and a tap-to-grade flashcard app
+ * fundamentally cannot: two onsets, and the gap between them.
+ */
+export type Leg = 'first' | 'second';
+
 export interface MachineState {
   phase: Phase;
+  /** For transition cards: which chord we're waiting for. Always 'first' otherwise. */
+  leg: Leg;
+  /** When the first chord of a transition landed, for measuring the change. */
+  firstLandedAt: number | null;
+  /** Gap between the two chords of a transition, in ms. */
+  transitionMs: number | null;
   /** 1, 2 or 3 — feeds the grade directly. */
   attempts: number;
   /** Consecutive unclear readings on the current attempt. */
@@ -25,19 +41,30 @@ export interface MachineState {
   startedAt: number;
   lastConfidence: number;
   /** Set once the phase reaches 'graded'; the session layer consumes it. */
-  outcome: { attempts: number; msToCorrect: number; confidence: number; overridden: boolean } | null;
+  isTransition: boolean;
+  outcome: {
+    attempts: number;
+    msToCorrect: number;
+    confidence: number;
+    overridden: boolean;
+    transitionMs?: number;
+  } | null;
   message: string | null;
 }
 
 export type Action =
-  | { type: 'newCard'; now: number }
+  | { type: 'newCard'; now: number; isTransition?: boolean }
   | { type: 'verdict'; verdict: Verdict; now: number }
   | { type: 'override'; now: number };
 
 export const MAX_UNCLEAR = 2;
 
-export const initialMachineState = (now: number): MachineState => ({
+export const initialMachineState = (now: number, isTransition = false): MachineState => ({
   phase: 'prompt',
+  leg: 'first',
+  firstLandedAt: null,
+  transitionMs: null,
+  isTransition,
   attempts: 1,
   unclearCount: 0,
   startedAt: now,
@@ -49,7 +76,7 @@ export const initialMachineState = (now: number): MachineState => ({
 export const machineReducer = (state: MachineState, action: Action): MachineState => {
   switch (action.type) {
     case 'newCard':
-      return initialMachineState(action.now);
+      return initialMachineState(action.now, action.isTransition ?? false);
 
     case 'override':
       // The learner is the authority on what they played. Grade it as if the current
@@ -86,21 +113,56 @@ export const machineReducer = (state: MachineState, action: Action): MachineStat
       }
 
       if (v.kind === 'correct') {
+        // First half of a transition: hold, don't grade. What is being measured is the
+        // *change*, so the card isn't finished until the second chord lands.
+        if (state.isTransition && state.leg === 'first') {
+          return {
+            ...state,
+            leg: 'second',
+            firstLandedAt: action.now,
+            unclearCount: 0,
+            lastConfidence: v.confidence,
+            message: null,
+          };
+        }
+        const transitionMs =
+          state.isTransition && state.firstLandedAt !== null
+            ? action.now - state.firstLandedAt
+            : null;
         return {
           ...state,
           phase: 'graded',
           lastConfidence: v.confidence,
+          transitionMs,
           outcome: {
             attempts: state.attempts,
-            msToCorrect: action.now - state.startedAt,
+            // For a transition the thing being graded is the change, not the whole card.
+            msToCorrect: transitionMs ?? action.now - state.startedAt,
             confidence: v.confidence,
             overridden: false,
+            ...(transitionMs !== null ? { transitionMs } : {}),
           },
           message: null,
         };
       }
 
-      // Incorrect.
+      // Incorrect. A fumbled second chord restarts the change from the top — the skill is
+      // the whole move, and grading half of it would reward stopping in the middle.
+      if (state.isTransition && state.leg === 'second') {
+        const bumped =
+          state.phase === 'prompt' ? 'retry' : state.phase === 'retry' ? 'reveal' : state.phase;
+        return {
+          ...state,
+          phase: bumped,
+          attempts: bumped === 'retry' ? 2 : bumped === 'reveal' ? 3 : state.attempts,
+          leg: 'first',
+          firstLandedAt: null,
+          unclearCount: 0,
+          lastConfidence: v.confidence,
+          message: null,
+        };
+      }
+
       if (state.phase === 'prompt') {
         return { ...state, phase: 'retry', attempts: 2, unclearCount: 0, lastConfidence: v.confidence, message: null };
       }
@@ -116,7 +178,10 @@ export const machineReducer = (state: MachineState, action: Action): MachineStat
 export const useSessionMachine = () => {
   const [state, dispatch] = useReducer(machineReducer, Date.now(), initialMachineState);
 
-  const newCard = useCallback(() => dispatch({ type: 'newCard', now: Date.now() }), []);
+  const newCard = useCallback(
+    (isTransition = false) => dispatch({ type: 'newCard', now: Date.now(), isTransition }),
+    [],
+  );
   const submitVerdict = useCallback(
     (verdict: Verdict) => dispatch({ type: 'verdict', verdict, now: Date.now() }),
     [],
@@ -131,4 +196,20 @@ export const useSessionMachine = () => {
     /** Show the override button once the detector has failed us twice. */
     offerOverride: state.unclearCount > MAX_UNCLEAR,
   };
+};
+
+/** What a screen reader should hear when the verdict changes. */
+export const announce = (state: MachineState, chordName: string): string => {
+  if (state.message) return state.message;
+  if (state.isTransition && state.leg === 'second') return 'Now the second chord.';
+  switch (state.phase) {
+    case 'prompt':
+      return `Play ${chordName}.`;
+    case 'retry':
+      return `Not quite. Try ${chordName} once more.`;
+    case 'reveal':
+      return `Here is ${chordName}. Play it as shown.`;
+    case 'graded':
+      return 'Correct.';
+  }
 };

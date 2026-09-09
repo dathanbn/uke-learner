@@ -55,12 +55,18 @@ export class Store {
     return this.db.getAllFromIndex('reviews', 'by-ts', IDBKeyRange.lowerBound(ts));
   }
 
-  /** How many distinct cards were first seen today, for the daily new-card cap. */
+  /**
+   * How many *new* cards were introduced today, for the daily cap.
+   *
+   * Counting every card reviewed today instead is a silent trap: once a learner has a
+   * handful of due reviews, those alone consume the whole allowance and no new chord is
+   * ever introduced again. The deck quietly stops growing and nothing says why.
+   */
   async newIntroducedToday(now = new Date()): Promise<number> {
     const midnight = new Date(now);
     midnight.setHours(0, 0, 0, 0);
     const logs = await this.reviewsSince(midnight.getTime());
-    return new Set(logs.map((l) => l.cardId)).size;
+    return new Set(logs.filter((l) => l.wasNew).map((l) => l.cardId)).size;
   }
 
   async settings(): Promise<SessionSettings> {
@@ -92,5 +98,48 @@ export class Store {
       this.settings(),
     ]);
     return JSON.stringify({ version: 1, exportedAt: Date.now(), settings, cards, reviews }, null, 2);
+  }
+
+  /**
+   * Restore an export. Additive by card id, so importing a backup onto a device that has
+   * been used since merges rather than silently discarding the newer progress.
+   */
+  async importAll(json: string): Promise<{ cards: number; reviews: number }> {
+    const parsed = JSON.parse(json) as {
+      version?: number;
+      settings?: SessionSettings;
+      cards?: Card[];
+      reviews?: ReviewLog[];
+    };
+    if (parsed.version !== 1) throw new Error(`unsupported export version ${parsed.version}`);
+
+    const cards = (parsed.cards ?? []).map((c) => ({
+      ...c,
+      // Dates survive JSON as strings; FSRS needs them back as Dates or every interval
+      // computation silently produces NaN.
+      fsrs: { ...c.fsrs, due: new Date(c.fsrs.due), last_review: c.fsrs.last_review ? new Date(c.fsrs.last_review) : undefined },
+    })) as Card[];
+
+    if (cards.length) await this.putCards(cards);
+
+    // Reviews are append-only and keyed by (cardId, ts), so re-importing is idempotent.
+    const existing = await this.reviewsSince(0);
+    const seen = new Set(existing.map((r) => `${r.cardId}@${r.ts}`));
+    const fresh = (parsed.reviews ?? []).filter((r) => !seen.has(`${r.cardId}@${r.ts}`));
+    if (fresh.length) await this.appendReviews(fresh);
+
+    if (parsed.settings) await this.saveSettings(parsed.settings);
+    return { cards: cards.length, reviews: fresh.length };
+  }
+
+  /** Wipe everything on this device. */
+  async eraseAll(): Promise<void> {
+    const tx = this.db.transaction(['cards', 'reviews', 'meta'], 'readwrite');
+    await Promise.all([
+      tx.objectStore('cards').clear(),
+      tx.objectStore('reviews').clear(),
+      tx.objectStore('meta').clear(),
+      tx.done,
+    ]);
   }
 }

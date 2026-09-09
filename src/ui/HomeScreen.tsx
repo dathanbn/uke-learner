@@ -1,6 +1,7 @@
 import { shapesForTier } from '../music/shapes';
 import type { Card, SessionSettings } from '../srs/types';
 import { Scheduler } from '../srs/scheduler';
+import { atRisk, displayStreak, type StreakState } from '../srs/streak';
 
 /**
  * The session length is a slider, not preset buttons, because the honest answer to "how
@@ -11,16 +12,20 @@ import { Scheduler } from '../srs/scheduler';
 export function HomeScreen({
   settings,
   cards,
+  streak,
   onSettings,
   onStart,
   onDebug,
+  onOpenSettings,
   busy,
 }: {
   settings: SessionSettings;
   cards: readonly Card[];
+  streak: StreakState;
   onSettings: (s: SessionSettings) => void;
   onStart: () => void;
   onDebug: () => void;
+  onOpenSettings: () => void;
   busy: boolean;
 }) {
   const now = new Date();
@@ -31,6 +36,8 @@ export function HomeScreen({
   const mastered = new Set(
     cards.filter((c) => c.fsrs.scheduled_days >= 14).map((c) => c.shapeId),
   ).size;
+  const days = displayStreak(streak, now);
+  const risky = atRisk(streak, now);
 
   return (
     <div className="app">
@@ -56,7 +63,20 @@ export function HomeScreen({
             <span className="muted">Due now</span>
             <strong style={{ fontSize: 26 }}>{due}</strong>
           </div>
+          <div className="stack">
+            <span className="muted">Streak</span>
+            <strong style={{ fontSize: 26 }}>
+              {days} <span className="muted" style={{ fontSize: 15 }}>{days === 1 ? 'day' : 'days'}</span>
+            </strong>
+          </div>
         </div>
+
+        {risky ? (
+          <div className="banner warn" style={{ marginBottom: 14 }}>
+            {days === 1 ? 'You practised yesterday' : `${days}-day streak`} — play today to keep
+            it going.
+          </div>
+        ) : null}
 
         <label htmlFor="len" className="muted">
           Session length
@@ -87,6 +107,15 @@ export function HomeScreen({
       </div>
 
       <div className="card">
+        <div className="row spread" style={{ marginBottom: 14 }}>
+          <div className="stack">
+            <strong>Settings</strong>
+            <span className="muted">
+              Tuning, how many new chords a day, listening sensitivity, your data.
+            </span>
+          </div>
+          <button onClick={onOpenSettings}>Open</button>
+        </div>
         <div className="row spread">
           <div className="stack">
             <strong>Detector debug</strong>

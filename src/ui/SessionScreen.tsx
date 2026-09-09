@@ -7,7 +7,7 @@ import { shapeName } from '../srs/scheduler';
 import { SmoothedEstimate } from '../srs/session';
 import type { Verdict } from '../types';
 import { ChordDiagram } from './ChordDiagram';
-import { useSessionMachine } from './useSessionMachine';
+import { announce, useSessionMachine } from './useSessionMachine';
 
 const fmt = (seconds: number): string => {
   const s = Math.max(0, Math.round(seconds));
@@ -38,24 +38,48 @@ export function SessionScreen({
 
   const card = snapshot.current;
   const shape = useMemo(() => (card ? getShape(card.shapeId) : null), [card]);
+  const toShape = useMemo(() => (card?.toShapeId ? getShape(card.toShapeId) : null), [card]);
+  const isTransition = card?.presentation === 'transition' && toShape !== null;
 
-  // Route verdicts into the state machine. The engine is told which shape to score
-  // against; changing cards resets detection so a ringing chord can't leak across.
+  const { newCard, submitVerdict } = machine;
+  const { leg } = machine.state;
+
+  /** For a transition, the chord the detector should currently be listening for. */
+  const activeShapeId =
+    isTransition && leg === 'second' ? (card?.toShapeId ?? null) : (card?.shapeId ?? null);
+
+  // Reset for each presentation. Keyed on presentationKey, not the card id: the same card
+  // can legitimately be shown twice in a row once the queue drains into the learning
+  // queue, and keying on the id would leave the machine stuck in its graded phase with a
+  // card on screen that never advances.
   useEffect(() => {
-    engine.setTarget(card?.shapeId ?? null);
     engine.resetDetection();
-    machine.newCard();
+    newCard(isTransition);
     setLastVerdict(null);
-  }, [card?.id, engine]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [snapshot.presentationKey, card?.shapeId, engine, newCard, isTransition]);
+
+  // Retarget as the transition advances. Deliberately does NOT reset detection: the gap
+  // between the two chords is the thing this card measures, so dropping onsets in between
+  // would measure something else.
+  useEffect(() => {
+    engine.setTarget(activeShapeId);
+  }, [engine, activeShapeId]);
 
   useEffect(() => {
     engine.setHandlers({
       onVerdict: (v) => {
         setLastVerdict(v.verdict);
-        machine.submitVerdict(v.verdict);
+        submitVerdict(v.verdict);
       },
     });
-  }, [engine, machine]);
+  }, [engine, submitVerdict]);
+
+  const onSetAside = () => {
+    session.setAside();
+    const next = session.snapshot();
+    setSnapshot(next);
+    if (session.isFinished()) onFinish();
+  };
 
   // Once graded, record the answer and move on.
   useEffect(() => {
@@ -98,7 +122,9 @@ export function SessionScreen({
 
   const { phase, message } = machine.state;
   const reveal = phase === 'reveal';
+  const label = shapeName(card);
   const showDiagram = reveal || card.presentation === 'diagram_to_play';
+  const activeShape = isTransition && leg === 'second' && toShape ? toShape : shape;
   const progress =
     snapshot.reviewed + snapshot.remaining > 0
       ? (snapshot.reviewed / (snapshot.reviewed + snapshot.remaining)) * 100
@@ -118,16 +144,52 @@ export function SessionScreen({
 
       <div className="card" style={{ textAlign: 'center', padding: '36px 20px' }}>
         <div className="muted" style={{ marginBottom: 6 }}>
-          {reveal ? 'Here it is — play this' : phase === 'retry' ? 'Try once more' : 'Play'}
+          {reveal
+            ? 'Here it is — play this'
+            : isTransition
+              ? leg === 'first'
+                ? 'Play the first chord, then change'
+                : 'Now change'
+              : phase === 'retry'
+                ? 'Try once more'
+                : 'Play'}
         </div>
 
-        {showDiagram ? (
-          <ChordDiagram shape={shape} size={190} />
+        {isTransition && toShape ? (
+          // Both chords stay on screen throughout. The one being waited for is highlighted
+          // rather than swapped in: seeing where you're going is the point of the drill.
+          <div className="row" style={{ justifyContent: 'center', gap: 8 }}>
+            <div style={{ opacity: leg === 'first' ? 1 : 0.35 }}>
+              {showDiagram ? (
+                <ChordDiagram shape={shape} size={140} />
+              ) : (
+                <div style={{ fontSize: 46, fontWeight: 800 }}>{shape.name}</div>
+              )}
+            </div>
+            <div className="muted" style={{ fontSize: 30 }} aria-hidden="true">
+              →
+            </div>
+            <div style={{ opacity: leg === 'second' ? 1 : 0.35 }}>
+              {showDiagram ? (
+                <ChordDiagram shape={toShape} size={140} />
+              ) : (
+                <div style={{ fontSize: 46, fontWeight: 800 }}>{toShape.name}</div>
+              )}
+            </div>
+          </div>
+        ) : showDiagram ? (
+          <ChordDiagram shape={activeShape ?? shape} size={190} />
         ) : (
           <div style={{ fontSize: 68, fontWeight: 800, letterSpacing: '-0.03em' }}>
             {shapeName(card)}
           </div>
         )}
+
+        {isTransition && machine.state.transitionMs !== null ? (
+          <div className="pill ok" style={{ marginTop: 16, display: 'inline-block' }}>
+            changed in {(machine.state.transitionMs / 1000).toFixed(1)}s
+          </div>
+        ) : null}
 
         {phase === 'retry' && lastVerdict?.kind === 'incorrect' ? (
           <div className="banner bad" style={{ marginTop: 20, textAlign: 'left' }}>
@@ -154,16 +216,30 @@ export function SessionScreen({
         ) : null}
       </div>
 
+      {/* The verdict is conveyed visually by colour, a mark and text; this carries the
+          same information to a screen reader without stealing focus. */}
+      <p aria-live="polite" className="sr-only">
+        {announce(machine.state, label)}
+      </p>
+
       <div className="row spread">
         <button onClick={onFinish}>End session</button>
-        {machine.offerOverride ? (
-          <button onClick={machine.override}>I played that right</button>
-        ) : (
-          <span className="muted" style={{ fontSize: 13 }}>
-            Keep your hands on the uke — it advances by itself.
-          </span>
-        )}
+        <div className="row">
+          {machine.offerOverride ? (
+            <button onClick={machine.override}>I played that right</button>
+          ) : null}
+          {/* Always available. The reveal phase otherwise only ends on a correct play,
+              which assumes the learner is physically able to form the shape — meeting a
+              first barre chord, they often aren't, and abandoning the session shouldn't be
+              the only way out. */}
+          <button onClick={onSetAside}>Can't play this yet</button>
+        </div>
       </div>
+      {!machine.offerOverride ? (
+        <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>
+          Keep your hands on the uke — it advances by itself.
+        </p>
+      ) : null}
     </div>
   );
 }

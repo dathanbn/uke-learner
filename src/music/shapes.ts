@@ -77,9 +77,19 @@ export const getShape = (id: string): ChordShape => {
   return shape;
 };
 
-/** Resolve a shape against its tuning into the concrete pitches the detector targets. */
-export const resolveShape = (shape: ChordShape): TargetShape => {
-  const open = getTuning(shape.tuningId).openNotes;
+/**
+ * Resolve a shape into the concrete pitches the detector targets.
+ *
+ * `tuningId` overrides the shape's own tuning, because high-G and low-G take *identical*
+ * fret patterns — only the 4th string's octave differs. Without this, a low-G player is
+ * calibrated against their instrument but scored against someone else's, and every chord
+ * reads as a muted 4th string.
+ *
+ * Baritone is a different case: the same fret pattern produces a different chord entirely,
+ * so it needs its own shape table rather than a re-resolution. See `SHAPE_COMPATIBLE`.
+ */
+export const resolveShape = (shape: ChordShape, tuningId?: string): TargetShape => {
+  const open = getTuning(tuningId ?? shape.tuningId).openNotes;
   const perString = shape.frets.map((f, i) => {
     if (f === null) return null;
     const openNote = open[i];
@@ -94,3 +104,13 @@ export const resolveShape = (shape: ChordShape): TargetShape => {
 
 export const shapesForTier = (maxTier: number): readonly ChordShape[] =>
   SHAPES.filter((x) => x.tier <= maxTier);
+
+/**
+ * Tunings these shapes are valid for. High-G and low-G share fret patterns; a baritone's
+ * DGBE means `0003` is a completely different chord, so it needs its own table before it
+ * can be offered.
+ */
+export const SHAPE_COMPATIBLE: readonly string[] = ['high-g', 'low-g'];
+
+export const supportsTuning = (tuningId: string): boolean =>
+  SHAPE_COMPATIBLE.includes(tuningId);

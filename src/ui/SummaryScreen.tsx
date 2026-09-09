@@ -2,6 +2,7 @@ import { Rating } from 'ts-fsrs';
 import { getShape } from '../music/shapes';
 import { Scheduler } from '../srs/scheduler';
 import type { Card, ReviewLog } from '../srs/types';
+import { displayStreak, type StreakState } from '../srs/streak';
 
 /**
  * Ends the session by pointing at music rather than at statistics.
@@ -23,16 +24,19 @@ const SONGS: { title: string; chords: string[] }[] = [
 export function SummaryScreen({
   logs,
   cards,
+  streak,
   onHome,
 }: {
   logs: readonly ReviewLog[];
   cards: readonly Card[];
+  streak: StreakState;
   onHome: () => void;
 }) {
   const total = logs.length;
   const firstTry = logs.filter((l) => l.grade === Rating.Good || l.grade === Rating.Easy).length;
   const accuracy = total ? Math.round((firstTry / total) * 100) : 0;
   const overrides = logs.filter((l) => l.overridden).length;
+  const setAside = logs.filter((l) => l.setAside).length;
 
   const tomorrow = new Date(Date.now() + 86_400_000);
   const dueTomorrow = cards.filter((c) => !Scheduler.isNew(c) && Scheduler.isDue(c, tomorrow)).length;
@@ -60,6 +64,10 @@ export function SummaryScreen({
             <span className="muted">Due tomorrow</span>
             <strong style={{ fontSize: 26 }}>{dueTomorrow}</strong>
           </div>
+          <div className="stack">
+            <span className="muted">Streak</span>
+            <strong style={{ fontSize: 26 }}>{displayStreak(streak)}</strong>
+          </div>
         </div>
       </div>
 
@@ -86,6 +94,13 @@ export function SummaryScreen({
           You had to override the detector {overrides} time{overrides > 1 ? 's' : ''}. That's
           a bug on our side, not yours — those are logged so the chords it mishears can be
           fixed.
+        </div>
+      ) : null}
+
+      {setAside > 0 ? (
+        <div className="banner ok">
+          You set {setAside} chord{setAside > 1 ? 's' : ''} aside. That's the right call —
+          they'll come back tomorrow, and hands need time to build the shape.
         </div>
       ) : null}
 

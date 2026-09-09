@@ -59,6 +59,10 @@ export interface PipelineOptions {
   /** Shape the next strum will be scored against. Changing it mid-flight is fine. */
   targetShapeId: string | null;
   reference?: PitchReference;
+  /** The instrument being played. High-G and low-G share fret patterns but not pitches. */
+  tuningId?: string;
+  /** User-facing leniency. 1 is the tuned default; above 1 relaxes the thresholds. */
+  sensitivity?: number;
 }
 
 export class DetectionPipeline {
@@ -68,12 +72,16 @@ export class DetectionPipeline {
   private reference: PitchReference;
 
   targetShapeId: string | null;
+  tuningId: string;
+  sensitivity: number;
   private calibrationTuning: string | null = null;
 
   constructor(private readonly opts: PipelineOptions) {
     this.analyser = new SpectrumAnalyser(opts.sampleRate);
     this.onsets = new OnsetDetector(opts.sampleRate);
     this.targetShapeId = opts.targetShapeId;
+    this.tuningId = opts.tuningId ?? 'high-g';
+    this.sensitivity = opts.sensitivity ?? 1;
     this.reference = opts.reference ?? CONCERT;
   }
 
@@ -164,7 +172,13 @@ export class DetectionPipeline {
   private finalise(p: PendingWindow, sampleIndex: number): VerdictEvent | null {
     if (p.activations.length === 0 || this.targetShapeId === null) return null;
     const averaged = averageActivations(p.activations);
-    const score = scoreAgainstTarget(averaged, this.targetShapeId, p.peakRms);
+    const score = scoreAgainstTarget(
+      averaged,
+      this.targetShapeId,
+      p.peakRms,
+      this.tuningId,
+      this.sensitivity,
+    );
     return {
       kind: 'verdict',
       onsetSample: p.onsetSample,
@@ -185,8 +199,9 @@ export const analyseBuffer = (
   sampleRate: number,
   targetShapeId: string | null,
   reference: PitchReference = CONCERT,
+  tuningId = 'high-g',
 ): PipelineEvent[] => {
-  const pipeline = new DetectionPipeline({ sampleRate, targetShapeId, reference });
+  const pipeline = new DetectionPipeline({ sampleRate, targetShapeId, reference, tuningId });
   const { frameSize } = pipeline;
   const hop = CONFIG.analysis.hopSize;
   const out: PipelineEvent[] = [];

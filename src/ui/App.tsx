@@ -2,19 +2,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CalibrationOutcome } from '../audio/calibration';
 import { AudioEngine, type MicStatus } from '../audio/engine';
 import { SpeedModel } from '../srs/grading';
-import { buildDeck, Scheduler } from '../srs/scheduler';
+import { buildDeck, buildTransitions, knownShapes, Scheduler } from '../srs/scheduler';
 import { Session } from '../srs/session';
+import { EMPTY_STREAK, recordPractice, type StreakState } from '../srs/streak';
 import type { Card, PresentationType, ReviewLog, SessionSettings } from '../srs/types';
 import { DEFAULT_SETTINGS } from '../srs/types';
 import { Store } from '../store/db';
 import { DebugPage } from './DebugPage';
 import { HomeScreen } from './HomeScreen';
 import { SessionScreen } from './SessionScreen';
+import { SettingsScreen } from './SettingsScreen';
 import { SummaryScreen } from './SummaryScreen';
 import { TunerPanel } from './TunerPanel';
 import './theme.css';
 
-type Screen = 'home' | 'calibrate' | 'session' | 'summary' | 'debug';
+type Screen = 'home' | 'calibrate' | 'session' | 'summary' | 'debug' | 'settings';
 
 const SECONDS_PER_CARD: [PresentationType, number][] = [
   ['name_to_play', 8],
@@ -33,6 +35,7 @@ export function App() {
   const [micStatus, setMicStatus] = useState<MicStatus | null>(null);
   const [calibration, setCalibration] = useState<CalibrationOutcome | null>(null);
   const [lastLogs, setLastLogs] = useState<readonly ReviewLog[]>([]);
+  const [streak, setStreak] = useState<StreakState>(EMPTY_STREAK);
 
   const engineRef = useRef<AudioEngine | null>(null);
   const sessionRef = useRef<Session | null>(null);
@@ -54,6 +57,7 @@ export function App() {
         setCards(existing);
         const samples = await s.getMeta<number[]>('speedSamples');
         if (samples) speedRef.current = SpeedModel.fromJSON(samples);
+        setStreak((await s.getMeta<StreakState>('streak')) ?? EMPTY_STREAK);
       } catch {
         // A private window with storage blocked shouldn't stop someone practising —
         // they just won't keep their progress.
@@ -66,9 +70,46 @@ export function App() {
     (s: SessionSettings) => {
       setSettings(s);
       void store?.saveSettings(s);
+      // A live session should follow a setting change immediately rather than at the next
+      // session — someone reaching for the leniency slider is doing it because the current
+      // card just failed.
+      engineRef.current?.configure(s.tuningId, s.sensitivity);
     },
     [store],
   );
+
+  /**
+   * Widening the tier adds cards for chords that weren't in the deck before. Without this
+   * the setting appears to do nothing until the database is wiped.
+   */
+  const syncDeck = useCallback(
+    async (s: SessionSettings) => {
+      const scheduler = new Scheduler(s.requestRetention);
+      const wanted = [
+        ...buildDeck(scheduler, s),
+        // Unlocked progressively: a transition only appears once both its chords are
+        // themselves solid, so the drill is the change rather than the shapes.
+        ...buildTransitions(scheduler, s, knownShapes(cards)),
+      ];
+      const have = new Set(cards.map((c) => c.id));
+      const missing = wanted.filter((c) => !have.has(c.id));
+      if (missing.length === 0) return;
+      setCards([...cards, ...missing]);
+      await store?.putCards(missing);
+    },
+    [cards, store],
+  );
+
+  const eraseAll = useCallback(async () => {
+    await store?.eraseAll();
+    const scheduler = new Scheduler(DEFAULT_SETTINGS.requestRetention);
+    const deck = buildDeck(scheduler, DEFAULT_SETTINGS);
+    setSettings(DEFAULT_SETTINGS);
+    setCards(deck);
+    setStreak(EMPTY_STREAK);
+    await store?.putCards(deck);
+    setScreen('home');
+  }, [store]);
 
   const beginCalibration = useCallback(async () => {
     setBusy(true);
@@ -88,6 +129,7 @@ export function App() {
       });
       setMicStatus(status);
       setScreen('calibrate');
+      engine.configure(settings.tuningId, settings.sensitivity);
       engine.calibrate(settings.tuningId);
     } catch (e) {
       setError(
@@ -98,7 +140,7 @@ export function App() {
     } finally {
       setBusy(false);
     }
-  }, [settings.tuningId]);
+  }, [settings.tuningId, settings.sensitivity]);
 
   const startSession = useCallback(async () => {
     const engine = engineRef.current;
@@ -114,17 +156,36 @@ export function App() {
   const finishSession = useCallback(async () => {
     const session = sessionRef.current;
     if (!session) return;
-    const updated = cards.map((c) => session.updated.get(c.id) ?? c);
+    let updated = cards.map((c) => session.updated.get(c.id) ?? c);
+
+    // Chords that became solid during this session may have unlocked new transitions.
+    const scheduler = new Scheduler(settings.requestRetention);
+    const have = new Set(updated.map((c) => c.id));
+    const unlocked = buildTransitions(scheduler, settings, knownShapes(updated)).filter(
+      (c) => !have.has(c.id),
+    );
+    if (unlocked.length) {
+      updated = [...updated, ...unlocked];
+      await store?.putCards(unlocked);
+    }
     setCards(updated);
     setLastLogs(session.logs);
     await store?.putCards([...session.updated.values()]);
     await store?.appendReviews(session.logs);
     await store?.setMeta('speedSamples', speedRef.current.toJSON());
+
+    // A session only counts toward the streak if something was actually reviewed —
+    // opening the app and immediately quitting shouldn't keep a streak alive.
+    if (session.logs.length > 0) {
+      const nextStreak = recordPractice(streak);
+      setStreak(nextStreak);
+      await store?.setMeta('streak', nextStreak);
+    }
     await engineRef.current?.stop();
     engineRef.current = null;
     sessionRef.current = null;
     setScreen('summary');
-  }, [cards, store]);
+  }, [cards, store, settings, streak]);
 
   const goHome = useCallback(async () => {
     await engineRef.current?.stop();
@@ -138,6 +199,21 @@ export function App() {
 
   if (screen === 'debug') return <DebugPage onBack={goHome} />;
 
+  if (screen === 'settings') {
+    return (
+      <SettingsScreen
+        settings={settings}
+        store={store}
+        onChange={(s) => {
+          persistSettings(s);
+          void syncDeck(s);
+        }}
+        onBack={() => setScreen('home')}
+        onReset={() => void eraseAll()}
+      />
+    );
+  }
+
   if (screen === 'session' && sessionRef.current && engineRef.current) {
     return (
       <SessionScreen
@@ -149,7 +225,9 @@ export function App() {
   }
 
   if (screen === 'summary') {
-    return <SummaryScreen logs={lastLogs} cards={cards} onHome={() => void goHome()} />;
+    return (
+      <SummaryScreen logs={lastLogs} cards={cards} streak={streak} onHome={() => void goHome()} />
+    );
   }
 
   if (screen === 'calibrate') {
@@ -197,9 +275,11 @@ export function App() {
       <HomeScreen
         settings={settings}
         cards={cards}
+        streak={streak}
         onSettings={persistSettings}
         onStart={() => void beginCalibration()}
         onDebug={() => setScreen('debug')}
+        onOpenSettings={() => setScreen('settings')}
         busy={busy}
       />
     </>

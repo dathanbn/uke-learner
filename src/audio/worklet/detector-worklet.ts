@@ -29,7 +29,17 @@ interface CalibrateMessage {
   type: 'calibrate';
   tuningId: string;
 }
-type InboundMessage = SetTargetMessage | SetReferenceMessage | ResetMessage | CalibrateMessage;
+interface ConfigureMessage {
+  type: 'configure';
+  tuningId: string;
+  sensitivity: number;
+}
+type InboundMessage =
+  | SetTargetMessage
+  | SetReferenceMessage
+  | ResetMessage
+  | CalibrateMessage
+  | ConfigureMessage;
 
 class DetectorProcessor extends AudioWorkletProcessor {
   private readonly pipeline: DetectionPipeline;
@@ -48,6 +58,10 @@ class DetectorProcessor extends AudioWorkletProcessor {
       else if (msg.type === 'reference') this.pipeline.setReference(referenceFromOffset(cents(msg.offsetCents)));
       else if (msg.type === 'reset') this.pipeline.reset();
       else if (msg.type === 'calibrate') this.pipeline.armCalibration(msg.tuningId);
+      else if (msg.type === 'configure') {
+        this.pipeline.tuningId = msg.tuningId;
+        this.pipeline.sensitivity = msg.sensitivity;
+      }
     };
   }
 

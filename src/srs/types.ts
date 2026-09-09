@@ -54,6 +54,10 @@ export interface ReviewLog {
   msToCorrect: number;
   confidence: number;
   overridden: boolean;
+  /** True when this was the card's first ever review — drives the daily new-card cap. */
+  wasNew: boolean;
+  /** The learner declared they couldn't play this one yet, rather than getting it wrong. */
+  setAside?: boolean;
   /** Milliseconds between the two chords, for transition cards. */
   transitionMs?: number;
 }
@@ -67,6 +71,11 @@ export interface SessionSettings {
   maxTier: number;
   /** Passed through to FSRS. Higher means shorter intervals and more reviews. */
   requestRetention: number;
+  /**
+   * Detector leniency. 1 is the tuned default. Raising it accepts more marginal playing,
+   * which also means accepting more *wrong* playing — the expensive direction.
+   */
+  sensitivity: number;
 }
 
 export const DEFAULT_SETTINGS: SessionSettings = {
@@ -75,4 +84,5 @@ export const DEFAULT_SETTINGS: SessionSettings = {
   newCardsPerDay: 5,
   maxTier: 1,
   requestRetention: 0.9,
+  sensitivity: 1,
 };

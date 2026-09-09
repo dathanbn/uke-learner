@@ -65,13 +65,24 @@ export const buildDeck = (
   return cards;
 };
 
-/** Transition cards for every ordered pair within a tier. Added in v1.1. */
+/**
+ * Transition cards for pairs of chords the learner already knows.
+ *
+ * Gated on `knownShapeIds` rather than generated for the whole tier, for two reasons.
+ * Being asked to change *between* two chords you can't yet form individually is
+ * demoralising and teaches nothing. And the pair count is quadratic — the full Tier 2 set
+ * is 90 cards, which would swamp every session with material the learner isn't ready for.
+ *
+ * These are the cards that make the product worth using past week one: holding a C is
+ * easy, changing C to F in time is the thing that actually gates playing songs.
+ */
 export const buildTransitions = (
   scheduler: Scheduler,
   settings: SessionSettings,
+  knownShapeIds: ReadonlySet<string>,
   now = new Date(),
 ): Card[] => {
-  const shapes = shapesForTier(settings.maxTier);
+  const shapes = shapesForTier(settings.maxTier).filter((s) => knownShapeIds.has(s.id));
   const cards: Card[] = [];
   for (const a of shapes) {
     for (const b of shapes) {
@@ -80,6 +91,23 @@ export const buildTransitions = (
     }
   }
   return cards;
+};
+
+/**
+ * A chord counts as "known" once the app is confident enough not to show it for a few
+ * days. Earlier than that and transitions arrive while the shapes themselves are still
+ * being learned.
+ */
+export const TRANSITION_UNLOCK_DAYS = 3;
+
+export const knownShapes = (cards: readonly Card[]): Set<string> => {
+  const byShape = new Map<string, boolean>();
+  for (const c of cards) {
+    if (c.presentation === 'transition') continue;
+    const ok = !Scheduler.isNew(c) && c.fsrs.scheduled_days >= TRANSITION_UNLOCK_DAYS;
+    byShape.set(c.shapeId, (byShape.get(c.shapeId) ?? true) && ok);
+  }
+  return new Set([...byShape].filter(([, ok]) => ok).map(([id]) => id));
 };
 
 export const shapeName = (card: Card): string =>

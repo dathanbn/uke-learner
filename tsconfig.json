@@ -15,7 +15,7 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["vite/client", "vitest/globals", "node"]
+    "types": ["vite/client", "vitest/globals", "node", "vite-plugin-pwa/client"]
   },
   "include": ["src", "test", "vite.config.ts"]
 }

@@ -154,6 +154,11 @@ export class AudioEngine {
     this.node?.port.postMessage({ type: 'target', shapeId });
   }
 
+  /** Tell the detector which instrument it is listening to, and how lenient to be. */
+  configure(tuningId: string, sensitivity: number): void {
+    this.node?.port.postMessage({ type: 'configure', tuningId, sensitivity });
+  }
+
   /**
    * Arm calibration. The next strum is read as four open strings — used at the start of a
    * session and whenever drift tracking says the instrument has moved.

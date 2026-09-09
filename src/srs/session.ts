@@ -1,4 +1,4 @@
-import { Rating, type Grade } from 'ts-fsrs';
+import { Rating, State, type Grade } from 'ts-fsrs';
 import { gradeFor, SpeedModel } from './grading';
 import { Scheduler } from './scheduler';
 import type { Card, PresentationType, ReviewLog, SessionSettings } from './types';
@@ -49,6 +49,16 @@ export interface SessionSnapshot {
   elapsedSeconds: number;
   /** Cards still in the learning queue — the session cannot cleanly end while >0. */
   inLearning: number;
+  /**
+   * Increments on every presentation, including a repeat of the same card.
+   *
+   * The UI resets its card state machine when this changes. It cannot key off the card id:
+   * at the end of a session with a lapse the queue empties, one learning card is left, and
+   * answering it presents the same card again — the id is unchanged, the machine never
+   * leaves its graded phase, and the app freezes with a card on screen that will never
+   * advance.
+   */
+  presentationKey: number;
 }
 
 export class Session {
@@ -65,6 +75,7 @@ export class Session {
   private presentationCount = 0;
   private startedAt: number;
   private gradedThisSession = new Set<string>();
+  private setAsideIds = new Set<string>();
   readonly logs: ReviewLog[] = [];
   readonly updated = new Map<string, Card>();
 
@@ -125,6 +136,10 @@ export class Session {
     const readyLapse = this.learning.find((l) => l.dueAtPresentation <= this.presentationCount);
     if (readyLapse) return readyLapse.card;
 
+    // Skip past anything the learner has set aside for today.
+    while (this.index < this.queue.length && this.setAsideIds.has(this.queue[this.index]!.card.id)) {
+      this.index++;
+    }
     const next = this.queue[this.index]?.card;
     if (next) return next;
 
@@ -165,18 +180,7 @@ export class Session {
 
     // Only a card's first presentation this session feeds the day-scale model.
     if (!this.gradedThisSession.has(card.id)) {
-      this.gradedThisSession.add(card.id);
-      this.updated.set(card.id, this.scheduler.grade(card, grade, now));
-      this.logs.push({
-        cardId: card.id,
-        ts: now.getTime(),
-        grade,
-        attempts: outcome.attempts,
-        msToCorrect: outcome.msToCorrect,
-        confidence: outcome.confidence,
-        overridden: outcome.overridden,
-        ...(outcome.transitionMs !== undefined ? { transitionMs: outcome.transitionMs } : {}),
-      });
+      this.record(card, grade, now, outcome);
       if (outcome.attempts === 1) this.speed.record(outcome.msToCorrect);
     }
 
@@ -201,6 +205,75 @@ export class Session {
     if (!wasLapse) this.index++;
   }
 
+  /**
+   * Record a grade against the day-scale model. Captures whether the card was New
+   * *before* grading — afterwards it never is, and the daily new-card cap needs to count
+   * introductions rather than reviews.
+   */
+  private record(
+    card: Card,
+    grade: Grade,
+    now: Date,
+    outcome: {
+      attempts: number;
+      msToCorrect: number;
+      confidence: number;
+      overridden: boolean;
+      transitionMs?: number;
+      setAside?: boolean;
+    },
+  ): void {
+    const wasNew = card.fsrs.state === State.New;
+    this.gradedThisSession.add(card.id);
+    this.updated.set(card.id, this.scheduler.grade(card, grade, now));
+    this.logs.push({
+      cardId: card.id,
+      ts: now.getTime(),
+      grade,
+      attempts: outcome.attempts,
+      msToCorrect: outcome.msToCorrect,
+      confidence: outcome.confidence,
+      overridden: outcome.overridden,
+      wasNew,
+      ...(outcome.setAside ? { setAside: true } : {}),
+      ...(outcome.transitionMs !== undefined ? { transitionMs: outcome.transitionMs } : {}),
+    });
+  }
+
+  /**
+   * "I can't play this one yet."
+   *
+   * The reveal phase only ends when the chord is played correctly, which assumes the
+   * learner is *able* to. Meeting a first barre chord, they often aren't — and the manual
+   * override doesn't help, because that only appears after repeated unclear readings and
+   * the detector can hear them playing it wrong perfectly well. Without this, the only way
+   * out is to abandon the session.
+   *
+   * Graded Again, so it comes back tomorrow, but removed from this session's learning
+   * queue: making someone fail the same impossible chord four more times is punishment,
+   * not teaching.
+   */
+  setAside(now = new Date()): void {
+    const card = this.current;
+    if (!card) return;
+
+    this.presentationCount++;
+    if (!this.gradedThisSession.has(card.id)) {
+      this.record(card, Rating.Again, now, {
+        attempts: 3,
+        msToCorrect: 0,
+        confidence: 0,
+        overridden: false,
+        setAside: true,
+      });
+    }
+    this.setAsideIds.add(card.id);
+
+    const lapseIdx = this.learning.findIndex((l) => l.card.id === card.id);
+    if (lapseIdx >= 0) this.learning.splice(lapseIdx, 1);
+    else this.index++;
+  }
+
   snapshot(now = new Date()): SessionSnapshot {
     const elapsed = (now.getTime() - this.startedAt) / 1000;
     const remaining = Math.max(0, this.queue.length - this.index) + this.learning.length;
@@ -214,6 +287,7 @@ export class Session {
       estimatedSecondsLeft: Math.max(0, estimate),
       elapsedSeconds: elapsed,
       inLearning: this.learning.length,
+      presentationKey: this.presentationCount,
     };
   }
 

@@ -21,13 +21,14 @@ export interface ScoredHypothesis {
 const confidenceOf = (act: Activation, notes: readonly MidiNote[]): number =>
   templateSimilarity(act, notes);
 
-/** Cached per shape — the confusion set is a pure function of the shape. */
+/** Cached per (shape, tuning) — the confusion set is a pure function of both. */
 const confusionCache = new Map<string, readonly Hypothesis[]>();
-const confusionFor = (shapeId: string): readonly Hypothesis[] => {
-  let c = confusionCache.get(shapeId);
+const confusionFor = (shapeId: string, tuningId: string): readonly Hypothesis[] => {
+  const key = `${shapeId}@${tuningId}`;
+  let c = confusionCache.get(key);
   if (!c) {
-    c = confusionSet(getShape(shapeId));
-    confusionCache.set(shapeId, c);
+    c = confusionSet(getShape(shapeId), tuningId);
+    confusionCache.set(key, c);
   }
   return c;
 };
@@ -119,8 +120,10 @@ export const scoreAgainstTarget = (
   act: Activation,
   shapeId: string,
   rms: number,
+  tuningId = 'high-g',
+  sensitivity = 1,
 ): ScoreResult => {
-  const target = resolveShape(getShape(shapeId));
+  const target = resolveShape(getShape(shapeId), tuningId);
   const targetConfidence = confidenceOf(act, target.notes);
   const unclear = (reason: 'too_quiet' | 'no_onset' | 'ambiguous'): ScoreResult => ({
     verdict: { kind: 'unclear', reason },
@@ -136,7 +139,7 @@ export const scoreAgainstTarget = (
   }
   if (strong < CONFIG.verdict.minStrongNotes) return unclear('ambiguous');
 
-  const ranked = confusionFor(shapeId)
+  const ranked = confusionFor(shapeId, tuningId)
     .map(
       (h): ScoredHypothesis => ({
         id: h.id,
@@ -148,7 +151,13 @@ export const scoreAgainstTarget = (
 
   const best = ranked[0] ?? null;
   const margin = targetConfidence - (best?.confidence ?? -Infinity);
-  const { minConfidence, minMargin } = CONFIG.verdict;
+
+  // `sensitivity` is the user-facing escape hatch for a room the detector finds hard.
+  // Above 1 it relaxes both thresholds, which trades false rejects for false accepts —
+  // the expensive direction (CLAUDE.md invariant 4) — so the settings copy says so, and
+  // the range is deliberately narrow.
+  const minConfidence = CONFIG.verdict.minConfidence / sensitivity;
+  const minMargin = CONFIG.verdict.minMargin / sensitivity;
 
   if (targetConfidence >= minConfidence && margin >= minMargin) {
     return {
