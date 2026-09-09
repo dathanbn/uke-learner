@@ -59,6 +59,19 @@ export type Action =
 
 export const MAX_UNCLEAR = 2;
 
+/**
+ * Verdicts arriving this soon after a card appears are ignored.
+ *
+ * The previous chord is still ringing when the next card loads, and a learner who strums
+ * once more out of habit produces a verdict against a card they have not yet read. Without
+ * this they are marked wrong on their first attempt before seeing the chord — which feels
+ * like the app cheating, and is the fastest way to lose trust in the grading.
+ *
+ * Short enough that it can never swallow a real answer: nobody reads a chord name and
+ * forms the shape in a third of a second.
+ */
+export const SETTLE_MS = 350;
+
 export const initialMachineState = (now: number, isTransition = false): MachineState => ({
   phase: 'prompt',
   leg: 'first',
@@ -97,6 +110,8 @@ export const machineReducer = (state: MachineState, action: Action): MachineStat
     case 'verdict': {
       const v = action.verdict;
       if (state.phase === 'graded') return state;
+      // Still settling from the previous card — see SETTLE_MS.
+      if (action.now - state.startedAt < SETTLE_MS) return state;
 
       if (v.kind === 'unclear') {
         const count = state.unclearCount + 1;

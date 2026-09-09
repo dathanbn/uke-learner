@@ -4,6 +4,7 @@ import { gradeFor } from '../src/srs/grading';
 import {
   initialMachineState,
   machineReducer,
+  SETTLE_MS,
   type MachineState,
 } from '../src/ui/useSessionMachine';
 import type { Verdict } from '../src/types';
@@ -68,7 +69,7 @@ describe('card state machine', () => {
     s = play(s, unclear);
     expect(s.attempts).toBe(1);
     // And a later clean play still counts as first try.
-    const done = play(s, correct, T0 + 900);
+    const done = play(s, correct, T0 + 1400);
     expect(done.outcome!.attempts).toBe(1);
   });
 
@@ -95,6 +96,20 @@ describe('card state machine', () => {
     const graded = play(start(), correct);
     // A chord ringing on after the verdict must not re-grade the card.
     expect(play(graded, incorrect)).toBe(graded);
+  });
+
+  it('ignores a chord still ringing from the previous card', () => {
+    // A learner who strums once more out of habit must not be marked wrong on a card they
+    // have not yet read.
+    const s = play(start(), incorrect, T0 + SETTLE_MS - 50);
+    expect(s.phase).toBe('prompt');
+    expect(s.attempts).toBe(1);
+  });
+
+  it('accepts an answer as soon as the card has settled', () => {
+    const s = play(start(), correct, T0 + SETTLE_MS + 10);
+    expect(s.phase).toBe('graded');
+    expect(s.outcome?.attempts).toBe(1);
   });
 
   it('resets cleanly for the next card', () => {

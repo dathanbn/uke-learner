@@ -147,6 +147,13 @@ Two traps this project has already hit, both of which cost real time:
 2. **Parameters that interact.** `peeling.scalePercentile` and `peeling.subtractSpreadBins`
    are effectively one setting — sweep them together. Individually each looks flat.
 
+## Project skills
+
+`.claude/skills/` holds the three workflows this project repeats: `tune-detector` (change a
+constant, prove the effect), `add-chord` (the six-step checklist), and `record-fixtures`
+(building the real corpus). Read the relevant one before doing that kind of work, and add
+to it when you learn something.
+
 ## Scope discipline
 
 v1 is **ukulele, ~40 chords, working well**. Not guitar, not a neural model, not a

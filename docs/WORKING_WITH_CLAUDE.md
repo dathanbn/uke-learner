@@ -60,23 +60,25 @@ Useful built-ins once a PR is open:
 A skill is a folder in `.claude/skills/<name>/SKILL.md` describing a repeatable task.
 Claude loads it when the work matches. The three worth writing for this project:
 
-- **`add-chord`** — adding a chord means updating shapes data, deriving MIDI notes,
-  generating the confusion set, recording fixtures, and extending the deck tier. That is a
-  five-step checklist you will run forty times. Write it down once.
-- **`tune-detector`** — the loop from §2: run the harness, read the matrix, adjust one
-  constant, re-run, report both rates. Encoding "never trade a lower false-reject rate for
-  a higher false-accept rate" into the skill means you never have to re-argue it.
-- **`record-fixtures`** — the naming convention and what takes are needed for a new chord.
+All three are now written, in `.claude/skills/`:
 
-Use `/skill-creator` to scaffold them. Skills are the difference between explaining your
-workflow every session and having it just happen.
+- **`add-chord`** — updating shapes data, checking the derived pitches and confusion set,
+  running the eval, recording fixtures, checking the diagram. A six-step checklist you will
+  run forty times.
+- **`tune-detector`** — the loop from §2: run the harness, read the matrix, adjust one
+  constant, re-run, report both rates. "Never trade a lower false-reject rate for a higher
+  false-accept rate" is encoded there so it never has to be re-argued.
+- **`record-fixtures`** — how to capture takes with the in-app recorder, the naming
+  convention, and which takes are actually worth recording.
+
+Extend them as you learn things. A skill is where a lesson goes so it survives the session
+that taught it to you.
 
 ## 6. Set up a session-start hook early
 
-If you plan to use Claude Code on the web (worth it — you can kick off work from your
-phone), add a `SessionStart` hook so a fresh cloud container installs dependencies and can
-actually run the tests. Without it, every web session starts by failing to run `npm test`.
-The `/session-start-hook` skill sets this up.
+`.claude/settings.json` has a `SessionStart` hook that installs dependencies if
+`node_modules` is missing, so a fresh cloud container can run the tests immediately.
+Without it every web session starts by failing to run `npm test`.
 
 Note the real limitation: **a cloud session has no microphone and no ukulele.** It can do
 the scheduler, the UI, the harness, and the data work — everything except the one thing
