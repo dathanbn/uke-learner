@@ -3,8 +3,23 @@
 Spaced-repetition ukulele chord trainer. Cards are answered by playing the chord on a real
 ukulele; the app listens through the microphone, verifies it, and advances hands-free.
 
-**Current state: pre-code.** The repo holds specs only. See `docs/BUILD_PROMPT.md` for the
-build sequence. Update this file once code exists.
+**Current state:** the audio engine works and is under test. Detection, calibration and a
+debug UI are built; the scheduler and session UI are not. See `docs/BUILD_PROMPT.md` for
+what comes next.
+
+## Push back when I'm wrong
+
+I am not a signal-processing or music-theory expert, and I would rather be corrected than
+agreed with. If I propose something that won't work, say so directly and explain why, with
+the specific reason — don't build it anyway and don't soften it into "great idea, though
+one consideration is…". Say which part of the idea is right, which part isn't, and what to
+do instead.
+
+The same applies to measurements. If a change makes the numbers worse, say so and revert
+it; don't move a threshold to make a test pass. If a result comes from synthetic audio and
+might not survive contact with a real ukulele, say that too. A confident wrong answer here
+costs weeks, because audio bugs are invisible until someone is standing there with an
+instrument wondering why the app won't advance.
 
 ## Read before changing audio code
 
@@ -32,6 +47,30 @@ These are load-bearing. Breaking any of them silently breaks the product.
 7. **Local-first.** IndexedDB is the source of truth. No network call is ever in the path
    of a practice session.
 
+## Domain facts — tuning and calibration
+
+There are two different kinds of "out of tune" and they need opposite treatment:
+
+- **Global offset** — the whole instrument sits N cents from A440. Every interval, and
+  therefore every chord, is still correct; only our reference was wrong. **Absorb this
+  automatically** by moving the detector's reference (`PitchReference`), and say nothing.
+  Making a beginner chase A440 before they may practise is friction for no benefit.
+- **Relative error** — the strings disagree with each other. The intervals themselves are
+  wrong, so the chords genuinely sound wrong. **Never absorb this.** Software-correcting it
+  would grade someone correct for a chord that sounds bad and train their ear on it, and it
+  eats the margin the detector needs — a string 50 cents sharp leaves 50 cents before it
+  looks like the next fret, which drives false accepts.
+
+Consequences that are easy to get wrong:
+- The global offset is the **median** of per-string deviations, never the mean: one badly
+  out string must not drag the reference with it.
+- `searchWindowCents` must stay well under half the closest interval between two open
+  strings — 200 cents on high-G (G4→A4). A wider window makes one string's search lock onto
+  its neighbour, and it fails precisely when the instrument is flat.
+- Drift is tracked passively from correct plays and only interrupts past a threshold. Nylon
+  goes flat measurably within one session; stopping a hands-free drill every few minutes to
+  retune would wreck the thing the product is for.
+
 ## Domain facts
 
 - Standard tuning is **high-G reentrant**: G4 392.0, C4 261.6, E4 329.6, A4 440.0 Hz.
@@ -56,21 +95,35 @@ These are load-bearing. Breaking any of them silently breaks the product.
 _To be filled in once the project is scaffolded (Prompt 0 in `docs/BUILD_PROMPT.md`)._
 
 ```
-npm run dev          # dev server
-npm run build        # production build
-npm run test         # unit tests
-npm run test:audio   # fixture corpus + confusion matrix
+npm run dev          # dev server, then open the detector debug page
+npm run build        # typecheck + production build
+npm run test         # all tests (~25s; the eval harness dominates)
+npm run test:audio   # detector eval only — prints the confusion matrix
 npm run typecheck
-npm run lint
 ```
 
 ## Testing audio changes
 
 Any change to `src/audio/` must be justified by `npm run test:audio` output. Report the
 confusion matrix before and after — true-accept, false-accept, false-reject, unclear.
-CI floor: ≥95 % true-accept, ≤2 % false-accept.
+CI floor: ≥95 % true-accept, ≤2 % false-accept. Currently **97.8 % / 0 %**.
 
-New fixtures go in `test/fixtures/<tuning>/<CHORD>_<correct|wrong-description>_NN.wav`.
+**The corpus is synthetic.** `test/synth.ts` models a plucked nylon string; it cannot
+produce room reverb, fret buzz, a cheap instrument's intonation, or a phone mic's response.
+Treat the numbers as a floor on difficulty, not a measure of field accuracy, and say so when
+quoting them. Real fixtures go in
+`test/fixtures/<tuning>/<CHORD>_<correct|wrong-description>_NN.wav` and run through the same
+code path.
+
+Two traps this project has already hit, both of which cost real time:
+
+1. **Tuning to noise.** With few takes the metric swings several points on nothing but a
+   different random seed, which is enough to make a parameter sweep pick a meaningless
+   winner. The eval runs each chord under six playing conditions for this reason. If you
+   change the corpus size, re-check that a repeated run gives the same answer before
+   trusting a sweep.
+2. **Parameters that interact.** `peeling.scalePercentile` and `peeling.subtractSpreadBins`
+   are effectively one setting — sweep them together. Individually each looks flat.
 
 ## Scope discipline
 

@@ -17,6 +17,11 @@ feel good, the scheduler and the UI are wasted work.
 
 ---
 
+> **Status:** Prompts 0, 1 and 2 are done, plus the tuner half of Prompt 5. The audio
+> engine, calibration, the eval harness and the debug page are built and passing at
+> 97.8 % true-accept / 0 % false-accept on synthetic audio. Prompt 3 (scheduler) is the
+> next one to run.
+
 ## Prompt 0 — Scaffold
 
 Use this once, in an empty repo. Run it in **plan mode** first (`Shift+Tab` twice in

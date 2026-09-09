@@ -94,12 +94,62 @@ and strong 2nd/3rd partials, so a harmonic sum is much more stable than peak-pic
 fundamental. Take the magnitude as the max over a ±50-cent window around each harmonic to
 tolerate intonation error on cheap instruments.
 
-Then suppress octave/harmonic ghosts: if `score(n)` is largely explained by `score(n-12)`
-already being high, subtract its contribution. Without this, the 3rd partial of C4 will
-light up G5 and you will "detect" notes nobody played.
+Ghosts are then removed by **greedy harmonic peeling**, not by a per-note penalty:
 
-Normalize the resulting activation vector, then threshold relative to the frame's own
-peak (adaptive), never against an absolute level — playing volume varies enormously.
+1. Score every candidate note against a working copy of the spectrum.
+2. Take the strongest — but first apply the **octave-error guard** (below).
+3. Record its score, and attenuate its modelled partials out of the working spectrum.
+4. Repeat, up to 6 notes, stopping when a candidate falls far below the first.
+
+Notes never claimed keep their *residual* score, scaled down. That residual is not a
+detail — it is the entire mechanism that separates "C4 ringing" from "C4 and C5 ringing",
+because C5's fundamental sits exactly on C4's second partial. Re-measuring claimed notes
+against the original spectrum looks like an obvious robustness improvement and is not: it
+was tried, and it produced a false accept on "the A string is muted" for a C chord, because
+on the raw spectrum a lone C4's partials give C5 a strong score.
+
+### Three things that are counter-intuitive here
+
+**The octave error runs upward, not downward.** A nylon string's second partial is *louder
+than its fundamental*, so the note an octave above a played note can outscore the note that
+caused it. Peel it first and you also strip the real note's even partials, leaving it
+looking absent. Before accepting a peak, check whether a harmonically related lower note
+(−12, −19, −24 semitones) scores at least `subOctaveRatio` of it; if so, peel the lower one.
+
+**Weighting the fundamental more heavily makes ghosts worse, not better.** The intuition is
+that a ghost has no fundamental, so emphasising h=1 should suppress it. But the worst
+ghosts are *octaves*, whose fundamental is the lower note's strongest partial. Measured on
+the synthetic corpus, raising the rolloff exponent from 1.0 to 2.5 drove the worst ghost
+from 0.75 to 1.00 while the weakest real note fell from 0.76 to 0.60.
+
+**Attenuate multiplicatively; don't subtract a flat value.** Flat subtraction across a
+partial's main lobe clips it to zero and destroys the excess energy that proves a second
+note is present. A gain of `1 − modelled/observed` removes exactly the modelled share and
+leaves the remainder. Estimate a note's amplitude scale from a *low percentile* of its
+observed/modelled partial ratios rather than the median: the median is pulled up by
+precisely the partials another note is sharing.
+
+`scalePercentile` and `subtractSpreadBins` are effectively a single parameter — sweep them
+together. On the synthetic corpus, (0.25, 2) gives 95.6 % true-accept where (0.25, 1) gives
+71 % and (0.25, 3) gives 80 %.
+
+## Scoring: cosine similarity, not means
+
+Given a hypothesis's note set `T` and the activation `a`:
+
+```
+confidence(T) = Σ_{n∈T} a(n) / ( sqrt(|T|) · ‖a‖ )
+```
+
+This is cosine similarity against a binary template, and both denominators are load-bearing:
+
+- `sqrt(|T|)` stops a **subset** winning. The obvious scorer — mean activation over `T`
+  minus mean energy elsewhere — is broken in the direction that causes false accepts:
+  dropping a note *raises* a mean if that note was below average, so "string 3 muted"
+  outscores the full chord even when every string is ringing. This was a real bug, and it
+  made every Tier 1 chord unverifiable.
+- `‖a‖` stops a **superset** winning, which is the mirror flaw in plain sums: a hypothesis
+  with a phantom extra note would otherwise score identically to one without it.
 
 ## Onset detection and the analysis window
 
@@ -168,11 +218,51 @@ The spec calls for a strum at session start. A strum works for a **coarse** chec
 the four strongest spectral peaks in ±100-cent windows around the four expected
 fundamentals and report cent deviations.
 
-But a strum is genuinely hard to analyze precisely — four simultaneous notes inside one
-octave, with overlapping partials. If any string reads ambiguous, fall back to asking for
-a **slow arpeggio** (one string at a time). Monophonic pitch detection (YIN / McLeod, via
-`pitchy`) on an isolated string is accurate to a couple of cents; polyphonic estimation on
-a strum is not close. Design the flow as: strum → confident? proceed : arpeggio.
+But a strum is genuinely hard to analyse precisely, and the naive implementation is not
+merely imprecise — it is *biased*. A coarse grid search that takes the maximum over three
+FFT bins has a plateau roughly ±24 cents wide at G4, so the argmax lands wherever noise
+puts it. That is fine for finding a string and useless for a tuner, where 12 cents is the
+difference between "in tune" and "tune your G string". Refine each candidate with parabolic
+interpolation on its actual partials, weighting higher partials more (they carry more cents
+per bin), and reject a refinement that jumps more than ~40 cents from the coarse estimate —
+that means a partial got captured by a neighbouring string.
+
+**The search window is the other trap.** It must stay well under half the closest interval
+between two open strings, which on high-G is G4→A4 at just 200 cents. A ±160 cent window
+lets G4's search lock onto A4, and it fails exactly when the instrument is flat, because
+the global shift walks every string toward its neighbour's window. ±90 cents works, and it
+bounds how large an offset can be absorbed at all.
+
+If any string still reads ambiguous, fall back to a **slow arpeggio** (one string at a
+time). Monophonic pitch detection on an isolated string is accurate to a couple of cents;
+polyphonic estimation on a strum is not close. Flow: strum → confident? proceed : arpeggio.
+
+### What can and cannot be automatic
+
+This is the distinction the whole calibration design turns on:
+
+| | What it means | Treatment |
+| --- | --- | --- |
+| **Global offset** | The whole instrument sits N cents from A440 | **Absorb silently.** Every interval is still correct, so every chord is still correct — only our reference was wrong. Move `PitchReference` and let them play. |
+| **Relative error** | The strings disagree with each other | **Never absorb.** The intervals themselves are wrong, so the chords genuinely sound wrong. Correcting it in software would grade someone correct for a chord that sounds bad and train their ear on it — and it eats detector margin, since a string 50 cents sharp leaves only 50 cents before it looks like the next fret. |
+
+Two implementation details that matter more than they look:
+
+- The global offset is the **median** of per-string deviations, never the mean. One badly
+  out string must not drag the reference with it — which is exactly what a mean does, and
+  it smears the blame across all four strings so the tuner names the wrong one.
+- When the spread between strings is *very* large (>60 cents), don't report a string to
+  tune — report that the reading isn't trustworthy. A real instrument is rarely that
+  internally inconsistent, so it almost always means the search locked onto the wrong
+  strings, and confidently naming a string would be confident nonsense.
+
+### Drift during a session
+
+Nylon goes flat measurably within one session, especially a fresh set. Interrupting a
+hands-free drill every few minutes to retune would wreck the one thing the product is for,
+so drift is tracked *passively*: every accepted strum contributes a free offset
+observation to an EWMA, and the user is only interrupted once the running estimate has both
+enough observations to be trusted and moved far enough to matter.
 
 Support at minimum:
 - **High-G reentrant** GCEA (default)
@@ -185,7 +275,7 @@ Make tuning a data structure, not a constant, from the first commit.
 
 | Library | Use it for | Notes |
 | --- | --- | --- |
-| Hand-rolled FFT + harmonic scoring | **Primary path** | Small, fast, explainable, gives per-string diagnosis. Nothing off-the-shelf gives you the confusion-set scoring you need. |
+| Hand-rolled FFT + harmonic peeling | **Primary path — built** | Small, fast, explainable, gives per-string diagnosis. Nothing off-the-shelf gives you the confusion-set scoring you need. |
 | [`pitchy`](https://github.com/ianprime0509/pitchy) | Tuner (monophonic) | McLeod pitch method, tiny, accurate on single strings. |
 | [`Meyda`](https://meyda.js.org/) | Feature plumbing, prototyping | Lightweight; chroma/RMS/spectral flux if you don't want to write them. |
 | [`essentia.js`](https://mtg.github.io/essentia.js/) | Reference / offline eval | WASM port of Essentia; HPCP, onset, chord detection. Several MB — good as an oracle to compare against, heavy for the hot loop. |
@@ -223,17 +313,36 @@ test/fixtures/
     F_correct_01.wav        ...
 ```
 
+**Status: built, running on synthetic audio.** `test/synth.ts` models a plucked nylon
+string (weak fundamental, strong 2nd/3rd partial, per-partial decay) and the harness runs
+every Tier 1–3 chord under six playing conditions — normal, quiet, loud, noisy room, slow
+strum, fast strum — against every near miss the confusion generator produces. Current
+score: **97.8 % true-accept, 0 % false-accept** over 90 correct and 238 wrong takes.
+
+Synthetic audio is a floor on difficulty, not a measure of field accuracy. It has no room
+reverb, no fret buzz, no intonation error, no phone-mic response. The real corpus is still
+the deliverable.
+
 Record every chord in the starter deck: 2–3 correct takes, plus the 2–3 wrong versions a
 beginner actually plays. Add takes from a second instrument, a second room, and a phone
-mic. Then a Node test that runs the detector over every fixture and reports a confusion
-matrix, with a hard floor in CI:
+mic. The harness already decodes and scores whatever is in `test/fixtures/`, with a hard
+floor in CI:
 
 - **≥ 95 %** true-accept on correct takes
 - **≤ 2 %** false-accept on wrong takes (a false accept is far worse than a false
   reject — it teaches the wrong shape)
 
 This harness is what lets you or Claude change a threshold with confidence instead of
-guessing. It is the highest-leverage hour in the project.
+guessing. It is the highest-leverage hour in the project — and it has already earned that,
+twice: it caught the subset-scoring bug that made every chord unverifiable, and it caught a
+"robustness improvement" that silently introduced a false accept.
+
+**Beware of tuning to noise.** With only a few takes per chord the metric swings several
+points on nothing but a different random seed — enough to make a parameter sweep pick a
+meaningless winner. That happened here: a sweep reported 95.6 % for a setting that measured
+88.9 % on a different seed sequence. Six playing conditions per chord is what made the
+number stable enough to tune against. Check that a repeated run reproduces before trusting
+a sweep.
 
 ## Known hard cases
 

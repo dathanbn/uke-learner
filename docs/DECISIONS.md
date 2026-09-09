@@ -81,3 +81,64 @@ must report both.
 **Why:** A false reject is annoying and the user retries. A false accept teaches a wrong
 shape and silently corrupts the thing the app exists to build. They are not symmetric and
 the thresholds should not be tuned as though they are.
+
+---
+
+### 8. Global tuning offset is absorbed; relative error is not
+**Decision:** Calibration measures each open string, takes the **median** deviation as a
+global offset, and moves the detector's pitch reference by it. Disagreement *between*
+strings is reported to the user instead.
+
+**Why:** A ukulele 40 cents flat is in tune with itself — every interval, and therefore
+every chord, is correct. Only our reference was wrong, so making a beginner chase A440
+before they may practise is friction for no benefit. Relative error is the opposite: the
+intervals themselves are wrong, so absorbing it would grade someone correct for a chord
+that sounds bad and train their ear on it. It also eats detector margin — a string 50 cents
+sharp leaves 50 cents before it looks like the next fret.
+
+**Consequence:** `searchWindowCents` (90) bounds `maxGlobalOffsetCents` (70). The window
+must stay under half the closest open-string interval (G4→A4, 200 cents) or one string's
+search locks onto its neighbour — and it fails exactly when the instrument is flat.
+
+---
+
+### 9. Greedy harmonic peeling, not per-note ghost penalties
+**Decision:** Extract notes by iteratively scoring, claiming the strongest, and attenuating
+its modelled partials out of a working spectrum. Claimed notes keep the score they had when
+claimed; unclaimed notes keep their residual.
+
+**Why:** The first implementation scored every candidate independently and subtracted a
+fixed penalty for harmonic relationships. It could not distinguish a played C5 from C4's
+second partial, because on a nylon string that partial is *louder than the fundamental*.
+The residual after peeling is the only evidence that separates them.
+
+**Rejected:** re-measuring claimed notes against the original spectrum. It looks like a
+robustness win — residual magnitude depends on peeling order and is noisy — but it was
+tried and produced a false accept on "the A string is muted" for a C chord. Stability is
+not worth a false accept (see #7).
+
+---
+
+### 10. Cosine similarity against a binary template, not mean activation
+**Decision:** `confidence(T) = Σ a(n) / (sqrt(|T|)·‖a‖)` over the hypothesis's notes.
+
+**Why:** The obvious scorer — mean activation over the target minus mean energy elsewhere —
+is broken in the direction that causes false accepts. Dropping a note raises a mean when
+that note was below average, so "string 3 muted" outscored the full chord even with every
+string ringing, and no Tier 1 chord could be verified. Plain sums have the mirror flaw: a
+phantom extra note costs nothing. The two denominators fix each direction.
+
+---
+
+### 11. The evaluation corpus is synthetic *for now*, and says so everywhere
+**Decision:** `test/synth.ts` generates plucked-string audio; the harness runs it under six
+playing conditions and enforces the CI floor against it.
+
+**Why:** It makes the detector testable on a machine with no microphone and no ukulele,
+which is most CI runs and every cloud session. It found two real bugs before any recording
+existed.
+
+**Limits, which must be repeated whenever the numbers are quoted:** no room reverb, no fret
+buzz, no intonation error, no microphone response. The thresholds in `src/config.ts` are
+tuned against it and will move once real fixtures land. Synthetic accuracy is a floor on
+difficulty, not a measure of field accuracy.
