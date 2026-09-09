@@ -236,6 +236,11 @@ export function App() {
           void store?.setMeta('welcomed', true);
           setScreen('home');
         }}
+        onDemo={() => {
+          setNeedsWelcome(false);
+          void store?.setMeta('welcomed', true);
+          setScreen('debug');
+        }}
       />
     );
   }

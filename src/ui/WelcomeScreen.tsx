@@ -5,7 +5,14 @@
  * happens to you. Without this, a first-timer's instinct is to look for a "next" button,
  * not find one, and conclude the app is broken. Three sentences prevent that.
  */
-export function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
+export function WelcomeScreen({
+  onContinue,
+  onDemo,
+}: {
+  onContinue: () => void;
+  /** For visitors without an instrument to hand — see the note below. */
+  onDemo?: () => void;
+}) {
   return (
     <div className="app">
       <h1>Hands stay on the ukulele</h1>
@@ -50,6 +57,34 @@ export function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
         Next you'll be asked for microphone access — it's the only way cards can advance on
         their own.
       </p>
+
+      {/*
+        Without this, anyone arriving without a ukulele hits a dead end: welcome, then a
+        microphone prompt, then nothing they can do. That is most people following a link.
+        The self-test runs the real detector on a synthesised chord, so they can see it
+        work without an instrument.
+      */}
+      {onDemo ? (
+        <p className="muted" style={{ marginTop: 18, textAlign: 'center' }}>
+          No ukulele to hand?{' '}
+          <button
+            onClick={onDemo}
+            style={{
+              border: 0,
+              background: 'none',
+              padding: 0,
+              font: 'inherit',
+              fontWeight: 700,
+              color: 'var(--accent)',
+              textDecoration: 'underline',
+              cursor: 'pointer',
+            }}
+          >
+            Watch the detector work
+          </button>{' '}
+          — it runs a chord through the real engine, no microphone needed.
+        </p>
+      ) : null}
     </div>
   );
 }

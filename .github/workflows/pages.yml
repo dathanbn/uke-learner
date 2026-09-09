@@ -2,7 +2,12 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    # This repo's default branch is the claude/* one — it was the first branch pushed to
+    # an empty repo, so GitHub made it the default. `main` is listed too so this keeps
+    # working if the branch is ever renamed or a main is created.
+    branches:
+      - main
+      - claude/chord-learning-spaced-repetition-gfrkd6
   workflow_dispatch:
 
 permissions:
