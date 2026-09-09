@@ -1,5 +1,7 @@
 # uke-learner
 
+**Live: https://dathanbn.github.io/uke-learner/**
+
 A spaced-repetition chord trainer for ukulele. Cards are answered by **playing the
 chord on a real instrument** — the app listens through the microphone, verifies what
 you played, and advances on its own. You never take your hands off the uke.
@@ -16,6 +18,10 @@ npm run test         # everything, including the detector confusion matrix
 npm run test:audio   # detector eval only
 npm run test:browser # build first; checks the worklet loads in a real browser
 ```
+
+Deploys to GitHub Pages on every push to the default branch, via
+`.github/workflows/pages.yml` (Actions source, not the legacy branch mode — the build sets
+`GITHUB_PAGES=true` so Vite uses the `/uke-learner/` base path).
 
 **The next step is not code.** Open the debug page, press Start listening, and strum at it.
 If it feels wrong, use the fixture recorder on that page — takes download named the way the
