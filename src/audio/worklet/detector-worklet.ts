@@ -38,13 +38,18 @@ interface ArpeggioMessage {
   type: 'arpeggio';
   tuningId: string | null;
 }
+interface RecordMessage {
+  type: 'record';
+  on: boolean;
+}
 type InboundMessage =
   | SetTargetMessage
   | SetReferenceMessage
   | ResetMessage
   | CalibrateMessage
   | ConfigureMessage
-  | ArpeggioMessage;
+  | ArpeggioMessage
+  | RecordMessage;
 
 class DetectorProcessor extends AudioWorkletProcessor {
   private readonly pipeline: DetectionPipeline;
@@ -52,6 +57,7 @@ class DetectorProcessor extends AudioWorkletProcessor {
   private write = 0;
   private sinceHop = 0;
   private totalSamples = 0;
+  private recording = false;
 
   constructor() {
     super();
@@ -63,6 +69,7 @@ class DetectorProcessor extends AudioWorkletProcessor {
       else if (msg.type === 'reference') this.pipeline.setReference(referenceFromOffset(cents(msg.offsetCents)));
       else if (msg.type === 'reset') this.pipeline.reset();
       else if (msg.type === 'calibrate') this.pipeline.armCalibration(msg.tuningId);
+      else if (msg.type === 'record') this.recording = msg.on;
       else if (msg.type === 'arpeggio') {
         if (msg.tuningId) this.pipeline.armArpeggio(msg.tuningId);
         else this.pipeline.cancelArpeggio();
@@ -76,6 +83,15 @@ class DetectorProcessor extends AudioWorkletProcessor {
   process(inputs: Float32Array[][]): boolean {
     const channel = inputs[0]?.[0];
     if (!channel) return true;
+
+    // Raw PCM for fixture capture. Posted as a copy per render quantum (128 samples) —
+    // small and frequent, but it only runs while explicitly recording, and lossless
+    // capture is the point: the corpus is the ground truth the detector is tuned against.
+    if (this.recording) {
+      this.port.postMessage({ kind: 'pcm', samples: channel.slice() }, [
+        // Transfer rather than copy again.
+      ]);
+    }
 
     const { frameSize, hopSize } = CONFIG.analysis;
     for (let i = 0; i < channel.length; i++) {

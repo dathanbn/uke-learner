@@ -15,6 +15,14 @@ export interface PluckOptions {
   durationSec: number;
   /** Reference pitch, so calibration can be tested by detuning the whole instrument. */
   a4Hz?: number;
+  /**
+   * Target *peak* level of the finished take, in [0, 1].
+   *
+   * Peak rather than per-partial gain, because four plucked strings summing at random
+   * phases routinely exceed full scale — earlier versions of this corpus peaked above 3.0,
+   * which no microphone can produce: a real preamp clips first. Testing the detector on
+   * signals with 3x headroom made the corpus quietly unrepresentative.
+   */
   amplitude?: number;
   noiseFloor?: number;
   seed?: number;
@@ -96,6 +104,9 @@ export const strum = (
     const gain = 0.82 + rand() * 0.36;
     pluck(note, opts, startSec + (i * strumMs) / 1000, gain, buf);
   });
+  // Normalise before adding noise, so a quiet take genuinely has a worse signal-to-noise
+  // ratio — which is exactly what a quiet strum in the same room sounds like.
+  normalisePeak(buf, Math.min(1, opts.amplitude ?? 0.3));
   for (let i = 0; i < n; i++) buf[i]! += (rand() - 0.5) * 2 * noiseFloor;
   return fadeOut(buf, sampleRate);
 };
@@ -116,6 +127,17 @@ export const fadeOut = (buf: Float32Array, sampleRate: number, ms = 150): Float3
     // energy into bins that were empty, which the onset detector reads — correctly — as
     // new spectral content, and fires a second onset on the fade of the first strum.
     buf[k]! *= 0.5 * (1 + Math.cos((Math.PI * i) / n));
+  }
+  return buf;
+};
+
+/** Scale a buffer so its loudest sample sits at `target`. */
+export const normalisePeak = (buf: Float32Array, target: number): Float32Array => {
+  let peak = 0;
+  for (const x of buf) peak = Math.max(peak, Math.abs(x));
+  if (peak > 0) {
+    const g = target / peak;
+    for (let i = 0; i < buf.length; i++) buf[i]! *= g;
   }
   return buf;
 };
@@ -151,6 +173,7 @@ export const strumDetuned = (
     const detuned = note + (centsPerString[i] ?? 0) / 100;
     pluck(detuned, { ...opts, a4Hz }, startSec + (i * 18) / 1000, 0.85 + rand() * 0.3, buf);
   });
+  normalisePeak(buf, Math.min(1, opts.amplitude ?? 0.3));
   for (let i = 0; i < n; i++) buf[i]! += (rand() - 0.5) * 2 * noiseFloor;
   return fadeOut(buf, sampleRate);
 };

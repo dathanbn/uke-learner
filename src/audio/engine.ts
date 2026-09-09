@@ -51,6 +51,7 @@ export class AudioEngine {
   private node: AudioWorkletNode | null = null;
   private stream: MediaStream | null = null;
   private handlers: EngineHandlers = {};
+  private recorded: Float32Array[] = [];
   status: MicStatus | null = null;
 
   get running(): boolean {
@@ -134,7 +135,12 @@ export class AudioEngine {
     outcome?: CalibrationOutcome;
     reading?: StringReading;
     next?: StringIndex | null;
+    samples?: Float32Array;
   }): void {
+    if (msg.kind === 'pcm') {
+      if (msg.samples) this.recorded.push(msg.samples);
+      return;
+    }
     if (msg.kind === 'frame') {
       this.handlers.onFrame?.({
         rms: msg.rms ?? 0,
@@ -186,6 +192,32 @@ export class AudioEngine {
   /** Apply a calibrated reference so the detector follows the instrument, not A440. */
   setReferenceOffset(offsetCents: number): void {
     this.node?.port.postMessage({ type: 'reference', offsetCents });
+  }
+
+  /**
+   * Start capturing raw PCM, for building the real fixture corpus.
+   *
+   * Raw rather than MediaRecorder: that produces Opus, and a lossy codec discards exactly
+   * the high-partial detail the peeling stage depends on. A corpus that had been through
+   * Opus would be measuring the codec as much as it measures the instrument.
+   */
+  startRecording(): void {
+    this.recorded = [];
+    this.node?.port.postMessage({ type: 'record', on: true });
+  }
+
+  /** Stop capturing and return everything gathered, as one contiguous buffer. */
+  stopRecording(): { samples: Float32Array; sampleRate: number } {
+    this.node?.port.postMessage({ type: 'record', on: false });
+    const total = this.recorded.reduce((n, c) => n + c.length, 0);
+    const samples = new Float32Array(total);
+    let at = 0;
+    for (const chunk of this.recorded) {
+      samples.set(chunk, at);
+      at += chunk.length;
+    }
+    this.recorded = [];
+    return { samples, sampleRate: this.sampleRate };
   }
 
   /**

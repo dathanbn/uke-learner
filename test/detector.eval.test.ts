@@ -1,4 +1,7 @@
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { decodeWav } from '../src/audio/wav';
 import { analyseBuffer, verdictsFrom } from '../src/audio/pipeline';
 import { confusionSet } from '../src/music/confusion';
 import { getShape, resolveShape } from '../src/music/shapes';
@@ -42,12 +45,12 @@ interface Case {
  * random gain balance, which is enough to make parameter tuning chase noise.
  */
 const CONDITIONS = [
-  { amplitude: 0.3, noiseFloor: 0.0012, strumMs: 18, label: 'normal' },
-  { amplitude: 0.12, noiseFloor: 0.0012, strumMs: 16, label: 'quiet' },
-  { amplitude: 0.42, noiseFloor: 0.0008, strumMs: 22, label: 'loud' },
-  { amplitude: 0.25, noiseFloor: 0.004, strumMs: 14, label: 'noisy room' },
-  { amplitude: 0.3, noiseFloor: 0.0012, strumMs: 26, label: 'slow strum' },
-  { amplitude: 0.3, noiseFloor: 0.002, strumMs: 11, label: 'fast strum' },
+  { amplitude: 0.5, noiseFloor: 0.0012, strumMs: 18, label: 'normal' },
+  { amplitude: 0.08, noiseFloor: 0.0012, strumMs: 16, label: 'quiet' },
+  { amplitude: 0.92, noiseFloor: 0.0008, strumMs: 22, label: 'loud' },
+  { amplitude: 0.35, noiseFloor: 0.006, strumMs: 14, label: 'noisy room' },
+  { amplitude: 0.5, noiseFloor: 0.0012, strumMs: 26, label: 'slow strum' },
+  { amplitude: 0.5, noiseFloor: 0.002, strumMs: 11, label: 'fast strum' },
 ] as const;
 
 /** Correct takes, plus every near miss the confusion generator knows how to produce. */
@@ -103,6 +106,106 @@ const runCase = (c: Case) => {
   );
   return verdictsFrom(analyseBuffer(buf, SR, c.shapeId))[0];
 };
+
+/**
+ * Real recordings, when there are any.
+ *
+ * `test/fixtures/<tuning>/<CHORD>_<correct|wrong-description>_NN.wav` — the naming the
+ * in-app fixture recorder produces, so files can be dropped straight in. Nothing here is
+ * required to exist; the suite reports the corpus as empty and passes, so the repo works
+ * before anyone has picked up an instrument. But the synthetic numbers are a floor on
+ * difficulty, not a measure of field accuracy, and only these files can tell you which.
+ */
+const FIXTURE_ROOT = join(__dirname, 'fixtures');
+
+interface Fixture {
+  path: string;
+  tuningId: string;
+  shapeId: string;
+  shouldAccept: boolean;
+  description: string;
+}
+
+const findFixtures = (): Fixture[] => {
+  if (!existsSync(FIXTURE_ROOT)) return [];
+  const out: Fixture[] = [];
+  for (const tuningId of readdirSync(FIXTURE_ROOT)) {
+    const dir = join(FIXTURE_ROOT, tuningId);
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const file of entries) {
+      if (!file.toLowerCase().endsWith('.wav')) continue;
+      const [chord, kind] = file.replace(/\.wav$/i, '').split('_');
+      if (!chord || !kind) continue;
+      const shape = SHAPES.find((sh) => sh.name === chord);
+      if (!shape) continue;
+      out.push({
+        path: join(dir, file),
+        tuningId,
+        shapeId: shape.id,
+        shouldAccept: kind === 'correct',
+        description: file,
+      });
+    }
+  }
+  return out;
+};
+
+describe('detector evaluation on real recordings', () => {
+  const fixtures = findFixtures();
+
+  it.skipIf(fixtures.length === 0)('meets the accuracy floor on real audio', () => {
+    let truePos = 0;
+    let falseNeg = 0;
+    let falsePos = 0;
+    let trueNeg = 0;
+    const failures: string[] = [];
+
+    for (const f of fixtures) {
+      const { samples, sampleRate } = decodeWav(
+        readFileSync(f.path).buffer as ArrayBuffer,
+      );
+      const ev = verdictsFrom(
+        analyseBuffer(samples, sampleRate, f.shapeId, undefined, f.tuningId),
+      )[0];
+      const kind = ev?.verdict.kind ?? 'none';
+      if (f.shouldAccept) {
+        kind === 'correct' ? truePos++ : (falseNeg++, failures.push(`FALSE REJECT [${kind}] ${f.description}`));
+      } else {
+        kind === 'correct' ? (falsePos++, failures.push(`FALSE ACCEPT ${f.description}`)) : trueNeg++;
+      }
+    }
+
+    const trueAccept = truePos / Math.max(1, truePos + falseNeg);
+    const falseAccept = falsePos / Math.max(1, trueNeg + falsePos);
+    console.log(
+      [
+        '',
+        `  real corpus: ${fixtures.length} files`,
+        `    true-accept  ${(trueAccept * 100).toFixed(1)}%  (${truePos}/${truePos + falseNeg})`,
+        `    false-accept ${(falseAccept * 100).toFixed(1)}%  (${falsePos}/${trueNeg + falsePos})`,
+        ...failures.slice(0, 20).map((x) => `    ${x}`),
+      ].join('\n'),
+    );
+
+    if (truePos + falseNeg > 0) expect(trueAccept).toBeGreaterThanOrEqual(MIN_TRUE_ACCEPT);
+    if (trueNeg + falsePos > 0) expect(falseAccept).toBeLessThanOrEqual(MAX_FALSE_ACCEPT);
+  });
+
+  it('says so when the corpus is empty', () => {
+    if (fixtures.length === 0) {
+      console.log(
+        '\n  No real recordings yet. Every accuracy number in this repo is synthetic —\n' +
+          '  use the fixture recorder on the debug page to start a real corpus.\n',
+      );
+    }
+    expect(true).toBe(true);
+  });
+});
 
 describe('detector evaluation', () => {
   it('meets the accuracy floor', () => {

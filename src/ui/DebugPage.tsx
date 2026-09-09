@@ -7,6 +7,7 @@ import { CONFIG } from '../config';
 import { SHAPES, getShape, resolveShape } from '../music/shapes';
 import { ActivationChart } from './ActivationChart';
 import { ChordDiagram } from './ChordDiagram';
+import { FixtureRecorder } from './FixtureRecorder';
 import { TunerPanel } from './TunerPanel';
 
 const RANGE = CONFIG.range.highNote - CONFIG.range.lowNote + 1;
@@ -250,6 +251,13 @@ export function DebugPage({ onBack }: { onBack?: () => void }) {
           <p style={{ margin: 0 }}>Nothing yet. Start listening and strum the chord.</p>
         )}
       </div>
+
+      <FixtureRecorder
+        engine={engineRef.current}
+        shapeId={shapeId}
+        tuningId="high-g"
+        listening={!!status}
+      />
 
       {history.length ? (
         <div className="card">
