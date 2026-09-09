@@ -37,7 +37,13 @@ jobs:
       - run: npm run build
         env:
           GITHUB_PAGES: 'true'
+      # enablement:true asks the Pages API to set build_type=workflow. Without it, a repo
+      # configured for "deploy from a branch" keeps running its own builder on every push
+      # — which finishes *after* this job and overwrites the built app with the raw repo
+      # root, where index.html is the Vite dev entry and the page renders blank.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
