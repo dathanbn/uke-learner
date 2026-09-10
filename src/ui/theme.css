@@ -1,28 +1,49 @@
+/* Self-hosted rather than a webfont request: the app has to start with no network at all
+   (invariant 7), and a blocking font fetch is the one thing that would break a cold
+   offline load. Latin only, three weights — the whole interface is numbers and chord
+   names. */
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-500.css';
+@import '@fontsource/inter/latin-600.css';
+
 /*
- * Light, playful, warm. The instrument is the interface — the screen is a prompt and a
- * verdict, so everything here optimises for reading at arm's length while both hands are
- * busy holding a ukulele.
+ * Cream ground, indigo ink, almost no words.
+ *
+ * Built for a phone propped against something while both hands hold a ukulele: the
+ * fretboard is the screen, everything else is a bar, a pulse or a number. Type and targets
+ * are sized to be read and hit at arm's length, and colour is never the only carrier of a
+ * verdict — there is always a mark or a position as well.
  */
 :root {
-  --bg: #fdf8f2;
-  --surface: #ffffff;
-  --surface-sunk: #f5eee4;
-  --ink: #2c2622;
-  --ink-soft: #6b5f56;
-  --ink-faint: #9c8d81;
-  --line: #e8ddd0;
-  --accent: #e2703a;
-  --accent-soft: #fbe6da;
-  --ok: #3d8b5f;
-  --ok-soft: #dcf0e4;
+  --bg: #faf5ec;
+  --surface: #fffdf8;
+  --surface-sunk: #f2eee5;
+  --ink: #262a60;
+  --ink-soft: #5d5294;
+  --ink-faint: #75798c;
+  --line: #e4e7f5;
+  --line-strong: #cfd3e5;
+  --accent: #353b80;
+  --accent-hover: #4c5397;
+  --accent-soft: #e7e5fe;
+  --accent-soft-line: #d2cefd;
+  --on-accent: #f5f4ff;
+  --ok: #3f9070;
+  --ok-deep: #2f6b53;
+  --ok-soft: #dcebe2;
+  --ok-faint: #b9d4c4;
+  --ok-bg: #f2f7f2;
   --warn: #b8791b;
   --warn-soft: #fbeed6;
-  --bad: #c4472f;
-  --bad-soft: #fbe0da;
+  --bad: #c4553f;
+  --bad-soft: #fbe9e4;
+  --bad-track: #f2ddd6;
   --radius: 14px;
-  --radius-lg: 22px;
-  --shadow: 0 1px 2px rgb(60 40 20 / 0.06), 0 6px 18px rgb(60 40 20 / 0.06);
-  --font: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif;
+  --radius-lg: 20px;
+  --shadow: 0 1px 2px rgb(38 42 96 / 0.04), 0 6px 18px rgb(38 42 96 / 0.06);
+  /* No webfont: the app must start and run with no network at all (invariant 7), and a
+     blocking font request is the one thing that would break that on a cold offline load. */
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
   color-scheme: light;
 }
@@ -37,84 +58,215 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* One phone-width column, centred on anything larger. The design is a 390pt frame and it
+   stays one however wide the window is — this is a thing you use with your hands full. */
 .app {
-  max-width: 900px;
+  width: 100%;
+  max-width: 430px;
+  min-height: 100dvh;
   margin: 0 auto;
-  padding: 24px 20px 64px;
+  padding: 16px 24px calc(26px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
 }
 
-h1, h2, h3 { margin: 0 0 8px; font-weight: 800; letter-spacing: -0.01em; }
-h1 { font-size: 26px; }
-h2 { font-size: 18px; }
-p { margin: 0 0 12px; color: var(--ink-soft); line-height: 1.55; }
+h1, h2, h3 { margin: 0 0 8px; letter-spacing: -0.02em; }
+h1 { font-size: 34px; font-weight: 500; line-height: 1.1; }
+h2 { font-size: 20px; font-weight: 600; }
+p { margin: 0 0 12px; color: var(--ink-faint); font-size: 15px; line-height: 1.5; }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
-  padding: 20px;
-  margin-bottom: 16px;
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 14px;
 }
 
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .spread { justify-content: space-between; }
 .stack { display: flex; flex-direction: column; gap: 6px; }
-.muted { color: var(--ink-faint); font-size: 13px; }
+.grow { flex: 1; }
+.push-down { margin-top: auto; }
+.muted { color: var(--ink-faint); font-size: 14px; font-weight: 500; }
 .mono { font-family: var(--mono); font-size: 12px; }
 
+/* Section label: the only place small uppercase text is used. */
+.eyebrow {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 12px;
+}
+
+/* Buttons are 60px+ because they are pressed with a hand that is holding an instrument. */
 button {
   font: inherit;
-  font-weight: 700;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--ink);
-  border-radius: var(--radius);
-  padding: 10px 18px;
+  font-size: 17px;
+  font-weight: 600;
+  min-height: 60px;
+  padding: 0 20px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-soft);
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: transform 80ms ease, background 120ms ease;
+  transition: background 120ms ease, transform 80ms ease;
 }
-button:hover:not(:disabled) { background: var(--surface-sunk); }
+button:hover:not(:disabled) { background: var(--accent-soft); }
 button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-button.primary:hover:not(:disabled) { background: #d0632f; }
 
-/* Range inputs default to the browser's blue, which reads as unstyled next to the warm
-   palette. accent-color handles the modern path; the WebKit rules cover the track. */
-input[type='range'] {
-  accent-color: var(--accent);
-  height: 22px;
+button.primary {
+  height: 68px;
+  border: 0;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 22px;
+  box-shadow: 0 6px 18px rgb(53 59 128 / 0.28);
 }
+button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+button.primary:active:not(:disabled) { background: var(--ink); }
+
+/* Round icon button — the only chrome on a card screen. */
+button.icon {
+  width: 44px;
+  height: 44px;
+  min-height: 0;
+  flex: none;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 17px;
+}
+
+button.link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+}
+button.link:hover:not(:disabled) { background: none; color: var(--accent-hover); }
+
+input[type='range'] { accent-color: var(--accent); height: 24px; }
 input[type='radio'],
-input[type='checkbox'] {
-  accent-color: var(--accent);
-  width: 17px;
-  height: 17px;
-}
+input[type='checkbox'] { accent-color: var(--accent); width: 19px; height: 19px; }
 
 select {
   font: inherit;
-  padding: 9px 12px;
+  min-height: 48px;
+  padding: 0 12px;
   border-radius: var(--radius);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   background: var(--surface);
   color: var(--ink);
 }
 
-.banner {
+/* Number-first tile: a big figure and a small label, nothing else. */
+.tiles { display: flex; gap: 12px; }
+.tile {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 12px 14px;
+  padding: 18px 16px;
+}
+.tile .figure { font-size: 40px; font-weight: 500; line-height: 1; margin-bottom: 6px; color: var(--ink); }
+.tile .label { font-size: 14px; font-weight: 500; color: var(--ink-faint); }
+.tile.accent { background: var(--accent-soft); border-color: var(--accent-soft-line); }
+.tile.accent .figure { color: var(--accent); }
+.tile.accent .label { color: var(--ink-soft); }
+
+/* The chords in today's plan, as a grid of squares. */
+.chord-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.chord-tile {
+  position: relative;
+  aspect-ratio: 1;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.chord-tile.new { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.chord-tile.new::after {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--accent-hover);
+  border: 2px solid var(--bg);
+}
+
+.chip {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 4px 10px;
   font-size: 14px;
   font-weight: 600;
-  margin-bottom: 12px;
+}
+
+.count-pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.count-pill::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.pill { font-size: 14px; font-weight: 600; padding: 5px 12px; border-radius: 999px; background: var(--surface-sunk); color: var(--ink-faint); }
+.pill.ok { background: var(--ok-soft); color: var(--ok-deep); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+
+.banner {
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  font-size: 15px;
+  font-weight: 500;
   line-height: 1.45;
+  margin-bottom: 12px;
 }
 .banner.warn { background: var(--warn-soft); color: var(--warn); }
 .banner.bad { background: var(--bad-soft); color: var(--bad); }
-.banner.ok { background: var(--ok-soft); color: var(--ok); }
+.banner.ok { background: var(--ok-soft); color: var(--ok-deep); }
 
-/* Visually hidden but read aloud. */
+/* Two words and an arrow: the whole of the wrong-answer copy. */
+.nudge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bad-soft);
+  color: var(--bad);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.nudge .arrow { font-size: 19px; }
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -127,63 +279,166 @@ select {
   border: 0;
 }
 
-/* Verdict readout — must be legible across a room. */
-.verdict { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
-.verdict.correct { color: var(--ok); }
-.verdict.incorrect { color: var(--bad); }
-.verdict.unclear { color: var(--warn); }
+.meter { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.meter > i { display: block; height: 100%; border-radius: 999px; background: var(--accent-hover); transition: width 200ms ease; }
+.meter.ok { background: var(--ok-soft); }
+.meter.ok > i { background: var(--ok); }
 
-/* Never communicate the verdict by colour alone. */
-.verdict-mark { font-size: 24px; margin-right: 8px; }
-
-.meter {
-  height: 10px;
-  background: var(--surface-sunk);
+/* Session-length slider. The native input stays — it is the accessible, draggable thing —
+   and is made transparent so the track and handle below can be drawn to match. */
+.slider { position: relative; flex: 1; height: 24px; }
+.slider input[type='range'] { position: relative; z-index: 1; display: block; width: 100%; height: 24px; margin: 0; opacity: 0; }
+.slider .track,
+.slider .fill,
+.slider .knob { position: absolute; pointer-events: none; }
+.slider .track { left: 0; right: 0; top: 8px; height: 8px; border-radius: 999px; background: var(--line); }
+.slider .fill { left: 0; top: 8px; height: 8px; border-radius: 999px; background: var(--accent-hover); }
+.slider .knob {
+  top: 0;
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
   border-radius: 999px;
-  overflow: hidden;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  box-shadow: 0 2px 6px rgb(38 42 96 / 0.2);
 }
-.meter > i { display: block; height: 100%; background: var(--accent); transition: width 60ms linear; }
+.slider input[type='range']:focus-visible ~ .knob { box-shadow: 0 0 0 4px var(--accent-soft-line); }
 
-/* Note-activation bar chart. */
+/* "It's listening": a breathing halo with the live input level inside it. Both are driven
+   by the microphone, never faked — a fake meter is worse than none, because the whole
+   question the learner is asking is whether the app can hear them. */
+.halo { position: relative; display: flex; align-items: center; justify-content: center; }
+.halo .ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  animation: breathe 2.6s ease-in-out infinite;
+}
+.halo .ring.inner {
+  inset: 26px;
+  background: var(--accent-soft-line);
+  opacity: 0.7;
+  animation-delay: 0.4s;
+}
+
+.level { display: flex; align-items: flex-end; gap: 7px; }
+.level > span {
+  width: 10px;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transform-origin: bottom;
+  transform: scaleY(0.18);
+  transition: transform 90ms linear;
+}
+.level.small > span { width: 8px; gap: 6px; background: var(--accent-hover); }
+
+/* Tuner: one row per string, needle position is the whole message. */
+.string-tiles { display: flex; gap: 12px; width: 100%; }
+.string-tile {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 0;
+  text-align: center;
+}
+.string-tile .note { font-size: 20px; font-weight: 500; margin-bottom: 10px; color: var(--ink); }
+.string-tile .dot { width: 26px; height: 26px; margin: 0 auto; border-radius: 999px; box-sizing: border-box; }
+.string-tile .dot.ok { background: var(--ok); }
+.string-tile .dot.off { background: var(--bad); }
+.string-tile .dot.unheard { border: 2px solid var(--line-strong); }
+
+.tuner-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: var(--bad-soft);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.tuner-row.ok { background: var(--ok-soft); }
+.tuner-row .note { font-size: 22px; font-weight: 500; color: var(--bad); }
+.tuner-row.ok .note { color: var(--ok-deep); }
+.tuner-row .track { position: relative; flex: 1; height: 10px; border-radius: 999px; background: var(--bad-track); }
+.tuner-row.ok .track { background: var(--ok-faint); }
+.tuner-row .centre { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: var(--line-strong); }
+.tuner-row .needle {
+  position: absolute;
+  top: -4px;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  border-radius: 999px;
+  background: var(--bad);
+  transition: left 120ms ease;
+}
+.tuner-row.ok .needle { background: var(--ok); }
+.tuner-row .dir { font-size: 22px; font-weight: 500; color: var(--bad); }
+
+/* Chord diagram. Sized as the hero of the session screen: the board is the interface. */
+.fretboard { display: block; }
+.fretboard .plate { fill: var(--surface); stroke: var(--line); }
+.fretboard .nut { stroke: var(--ink); stroke-linecap: round; }
+.fretboard .wire { stroke: var(--line); }
+.fretboard .string { stroke: var(--line-strong); }
+.fretboard .string.faulty { stroke: var(--bad); }
+.fretboard .dot { fill: var(--accent); }
+.fretboard .dot-ring { fill: none; stroke: var(--accent); animation: ring 1.6s ease-out infinite; }
+.fretboard .dot-label { fill: var(--on-accent); font-weight: 600; text-anchor: middle; }
+.fretboard .open { fill: none; stroke: var(--ink-faint); }
+.fretboard .open.sounding { fill: var(--ok); stroke: var(--ok); }
+.fretboard .muted-x { stroke: var(--ink-faint); stroke-linecap: round; }
+.fretboard .heard { fill: none; stroke: var(--bad); }
+.fretboard .heard-x { stroke: var(--bad); stroke-linecap: round; }
+.fretboard .name { fill: var(--ink); font-weight: 600; text-anchor: middle; }
+.fretboard .string-label { fill: var(--ink-faint); font-weight: 500; text-anchor: middle; }
+.fretboard .string-label.faulty { fill: var(--bad); font-weight: 600; }
+
+/* Right answer: a green ground, a mark, and on to the next card. */
+.correct-flash { background: var(--ok-bg); }
+.correct-mark { position: relative; display: flex; align-items: center; justify-content: center; animation: pop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1); }
+.correct-mark .disc { position: absolute; inset: 0; border-radius: 999px; background: var(--ok-soft); }
+.correct-mark .pulse { position: absolute; inset: 0; border-radius: 999px; border: 3px solid var(--ok); animation: ring 1.4s ease-out infinite; }
+/* Positioned siblings paint above static content, so the tick needs a position of its own
+   to sit on top of the disc rather than behind it. */
+.correct-mark svg { position: relative; }
+
+.dots { display: flex; gap: 10px; align-items: center; }
+.dots > span { width: 10px; height: 10px; border-radius: 999px; background: var(--ok-faint); }
+.dots > span.on { background: var(--ok); }
+
+/* Note-activation bar chart, debug page only. */
 .bars { display: flex; align-items: flex-end; gap: 2px; height: 150px; }
 .bars > div { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
-.bars .bar {
-  background: var(--line);
-  border-radius: 3px 3px 0 0;
-  min-height: 1px;
-  transition: height 60ms linear;
-}
+.bars .bar { background: var(--line); border-radius: 3px 3px 0 0; min-height: 1px; transition: height 60ms linear; }
 .bars .bar.target { background: var(--accent); }
 .bars .bar.strong { background: var(--ink-soft); }
-.bars .tick {
-  font-size: 8px;
-  text-align: center;
-  color: var(--ink-faint);
-  font-family: var(--mono);
-  height: 12px;
-  overflow: hidden;
+.bars .tick { font-size: 8px; text-align: center; color: var(--ink-faint); font-family: var(--mono); height: 12px; overflow: hidden; }
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 0.55; }
+  50% { transform: scale(1.045); opacity: 1; }
+}
+@keyframes pop {
+  0% { transform: scale(0.8); opacity: 0; }
+  60% { transform: scale(1.06); }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes nudge {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+@keyframes ring {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  100% { transform: scale(1.5); opacity: 0; }
 }
 
-/* Chord diagram. */
-.fretboard { display: block; }
-.fretboard .nut { stroke: var(--ink); stroke-width: 4; }
-.fretboard .wire { stroke: var(--line); stroke-width: 1.5; }
-.fretboard .string { stroke: var(--ink-faint); stroke-width: 1.5; }
-.fretboard .dot { fill: var(--accent); }
-.fretboard .dot-label { fill: #fff; font-size: 10px; font-weight: 800; text-anchor: middle; }
-.fretboard .open { fill: none; stroke: var(--ink-soft); stroke-width: 1.5; }
-.fretboard .muted-x { stroke: var(--ink-faint); stroke-width: 1.5; }
-.fretboard .name { fill: var(--ink); font-size: 15px; font-weight: 800; text-anchor: middle; }
-
-.tuner-row { display: grid; grid-template-columns: 44px 1fr 76px; gap: 10px; align-items: center; margin-bottom: 8px; }
-.tuner-track { position: relative; height: 22px; background: var(--surface-sunk); border-radius: 999px; }
-.tuner-track .centre { position: absolute; left: 50%; top: 2px; bottom: 2px; width: 2px; background: var(--line); }
-.tuner-track .needle { position: absolute; top: 3px; bottom: 3px; width: 6px; border-radius: 3px; background: var(--accent); transition: left 120ms ease; }
-.tuner-track .needle.ok { background: var(--ok); }
-
-.pill { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--surface-sunk); color: var(--ink-soft); }
-.pill.ok { background: var(--ok-soft); color: var(--ok); }
-.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.shake { animation: nudge 0.4s ease-in-out; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }

@@ -1,25 +1,50 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AudioEngine } from '../audio/engine';
 import { describeDiagnosis } from '../audio/verdict';
 import { getShape, resolveShape } from '../music/shapes';
 import type { Session } from '../srs/session';
 import { shapeName } from '../srs/scheduler';
-import { SmoothedEstimate } from '../srs/session';
-import type { Verdict } from '../types';
+import type { StringDiagnosis, Verdict } from '../types';
 import { ChordDiagram } from './ChordDiagram';
+import { LevelBars } from './LevelMeter';
 import { announce, useSessionMachine } from './useSessionMachine';
 
-const fmt = (seconds: number): string => {
-  const s = Math.max(0, Math.round(seconds));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+/** How long a correct answer stays on screen before the next card. */
+const CORRECT_HOLD_MS = 700;
+
+/** Dots on the correct screen: session progress, in quarters. */
+const PROGRESS_DOTS = 4;
+
+/**
+ * The two words a wrong answer gets.
+ *
+ * The arrow points where the finger has to go *on the board as drawn* — nut at the top —
+ * because that is what the learner is looking at. Everything else about the mistake is
+ * already marked on the diagram: the string in red, a cross where the note landed, a pulse
+ * on where it should have been.
+ */
+const nudgeFor = (
+  diagnosis: readonly StringDiagnosis[],
+): { arrow: string | null; text: string } | null => {
+  const fault = diagnosis.find((d) => d.fault.kind !== 'ok')?.fault;
+  if (!fault) return null;
+  if (fault.kind === 'wrong_fret') {
+    const n = Math.abs(fault.fretDelta);
+    return {
+      arrow: fault.fretDelta > 0 ? '↑' : '↓',
+      text: `${n === 1 ? 'one fret' : n === 2 ? 'two frets' : `${n} frets`}`,
+    };
+  }
+  if (fault.kind === 'missing') return { arrow: null, text: 'not sounding' };
+  return { arrow: null, text: 'once more' };
 };
 
 /**
  * The practice loop.
  *
- * Everything here is designed to be operated with both hands on the instrument. Buttons
- * exist, but they are the fallback path, not the primary one — the moment a learner has to
- * put the ukulele down to press something, the product's whole premise is gone.
+ * The board is the screen. Everything else is a bar, a pulse or a number, because this is
+ * operated with both hands on the instrument — the moment a learner has to put the ukulele
+ * down to press something, the product's whole premise is gone.
  */
 export function SessionScreen({
   session,
@@ -35,8 +60,6 @@ export function SessionScreen({
   const machine = useSessionMachine();
   const [snapshot, setSnapshot] = useState(() => session.snapshot());
   const [lastVerdict, setLastVerdict] = useState<Verdict | null>(null);
-  const smoother = useRef(new SmoothedEstimate(2));
-  const [shownEstimate, setShownEstimate] = useState(0);
   const [playingChord, setPlayingChord] = useState(false);
 
   const card = snapshot.current;
@@ -103,21 +126,24 @@ export function SessionScreen({
     if (session.isFinished()) onFinish();
   };
 
-  // Once graded, record the answer and move on.
+  // Once graded, hold the right answer on screen for a beat, then move on. The pause is
+  // the reward — a card that vanishes the instant it lands never registers as a win.
   useEffect(() => {
     if (machine.state.phase !== 'graded' || !machine.state.outcome) return;
-    session.answer(machine.state.outcome);
-    const next = session.snapshot();
-    setSnapshot(next);
-    if (session.isFinished()) onFinish();
+    const outcome = machine.state.outcome;
+    const id = setTimeout(() => {
+      session.answer(outcome);
+      const next = session.snapshot();
+      setSnapshot(next);
+      if (session.isFinished()) onFinish();
+    }, CORRECT_HOLD_MS);
+    return () => clearTimeout(id);
   }, [machine.state.phase, machine.state.outcome, session, onFinish]);
 
-  // Tick the clock. The estimate is smoothed upward so it never appears to go backwards.
+  // Tick the clock so a session that runs out of time ends on its own.
   useEffect(() => {
     const id = setInterval(() => {
-      const snap = session.snapshot();
-      setSnapshot(snap);
-      setShownEstimate(smoother.current.update(snap.estimatedSecondsLeft));
+      setSnapshot(session.snapshot());
       if (session.isFinished()) onFinish();
     }, 1000);
     return () => clearInterval(id);
@@ -144,140 +170,216 @@ export function SessionScreen({
 
   const { phase, message } = machine.state;
   const reveal = phase === 'reveal';
+  const correct = phase === 'graded';
   const label = shapeName(card);
-  const showDiagram = reveal || card.presentation === 'diagram_to_play';
   const activeShape = isTransition && leg === 'second' && toShape ? toShape : shape;
   const progress =
     snapshot.reviewed + snapshot.remaining > 0
       ? (snapshot.reviewed / (snapshot.reviewed + snapshot.remaining)) * 100
       : 0;
 
-  return (
-    <div className="app">
-      <div className="meter" style={{ marginBottom: 8 }}>
+  const showDiagram = reveal || card.presentation === 'diagram_to_play';
+  const wrong = lastVerdict?.kind === 'incorrect' && (phase === 'retry' || reveal);
+  // Only mark the board when the board is already on screen. On a name-only card the shape
+  // is the answer, and drawing it at the first wrong strum would hand over what the next
+  // attempt is meant to recall — that is what the reveal step is for.
+  const faults = wrong && lastVerdict?.kind === 'incorrect' ? lastVerdict.perString : null;
+  const diagnosis = faults && showDiagram ? faults : undefined;
+  const nudge = faults ? nudgeFor(faults) : null;
+
+  const header = (
+    <div className="row" style={{ gap: 16, flexWrap: 'nowrap', marginBottom: 4 }}>
+      <button className="icon" onClick={onFinish} aria-label="End session">
+        ✕
+      </button>
+      <div className={`meter grow${correct ? ' ok' : ''}`}>
         <i style={{ width: `${progress}%` }} />
       </div>
-      <div className="row spread muted" style={{ marginBottom: 24, fontSize: 13 }}>
-        <span>
-          {snapshot.reviewed} done · {snapshot.remaining} to go
-        </span>
-        <span>about {fmt(shownEstimate)} left</span>
-      </div>
+    </div>
+  );
 
-      <div className="card" style={{ textAlign: 'center', padding: '36px 20px' }}>
-        <div className="muted" style={{ marginBottom: 6 }}>
-          {reveal
-            ? 'Here it is — play this'
-            : isEarTraining
-              ? playingChord
-                ? 'Listen…'
-                : 'Find that chord'
-              : isTransition
-              ? leg === 'first'
-                ? 'Play the first chord, then change'
-                : 'Now change'
-              : phase === 'retry'
-                ? 'Try once more'
-                : 'Play'}
+  const liveRegion = (
+    <p aria-live="polite" className="sr-only">
+      {announce(machine.state, label)}
+      {faults
+        ? ` ${faults
+            .map(describeDiagnosis)
+            .filter((s): s is string => s !== null)
+            .slice(0, 2)
+            .join(' ')}`
+        : ''}
+    </p>
+  );
+
+  if (correct) {
+    const filled = Math.round((progress / 100) * PROGRESS_DOTS);
+    return (
+      <div className="app correct-flash">
+        {header}
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingBottom: 60,
+          }}
+        >
+          <div className="correct-mark" style={{ width: 220, height: 220 }}>
+            <span className="disc" />
+            <span className="pulse" />
+            <svg width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="correct">
+              <path
+                d="M26 50 L42 66 L72 32"
+                fill="none"
+                stroke="var(--ok)"
+                strokeWidth="9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+          <div
+            style={{
+              marginTop: 34,
+              fontSize: 68,
+              fontWeight: 500,
+              letterSpacing: '-0.03em',
+              color: 'var(--ok-deep)',
+            }}
+          >
+            {label}
+          </div>
+          <div className="dots" style={{ marginTop: 44 }} aria-hidden="true">
+            {Array.from({ length: PROGRESS_DOTS }, (_, i) => (
+              <span key={i} className={i < filled ? 'on' : ''} />
+            ))}
+          </div>
         </div>
+        {liveRegion}
+      </div>
+    );
+  }
 
+  return (
+    <div className="app">
+      {header}
+
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         {isEarTraining && !reveal ? (
-          // The chord name is the answer, so it stays hidden until the reveal.
-          <div style={{ fontSize: 68, fontWeight: 800, letterSpacing: '-0.03em' }} aria-hidden="true">
+          <div
+            style={{ marginTop: 22, fontSize: 76, fontWeight: 500, letterSpacing: '-0.03em' }}
+            aria-hidden="true"
+          >
             ♪
           </div>
-        ) : isTransition && toShape ? (
-          // Both chords stay on screen throughout. The one being waited for is highlighted
-          // rather than swapped in: seeing where you're going is the point of the drill.
-          <div className="row" style={{ justifyContent: 'center', gap: 8 }}>
-            <div style={{ opacity: leg === 'first' ? 1 : 0.35 }}>
-              {showDiagram ? (
-                <ChordDiagram shape={shape} size={140} />
-              ) : (
-                <div style={{ fontSize: 46, fontWeight: 800 }}>{shape.name}</div>
-              )}
-            </div>
-            <div className="muted" style={{ fontSize: 30 }} aria-hidden="true">
-              →
-            </div>
-            <div style={{ opacity: leg === 'second' ? 1 : 0.35 }}>
-              {showDiagram ? (
-                <ChordDiagram shape={toShape} size={140} />
-              ) : (
-                <div style={{ fontSize: 46, fontWeight: 800 }}>{toShape.name}</div>
-              )}
-            </div>
-          </div>
-        ) : showDiagram ? (
-          <ChordDiagram shape={activeShape ?? shape} size={190} />
         ) : (
-          <div style={{ fontSize: 68, fontWeight: 800, letterSpacing: '-0.03em' }}>
-            {shapeName(card)}
+          <div style={{ marginTop: 22, fontSize: 76, fontWeight: 500, letterSpacing: '-0.03em' }}>
+            {isTransition && toShape ? (
+              <span style={{ fontSize: 54 }}>
+                <span style={{ opacity: leg === 'first' ? 1 : 0.35 }}>{shape.name}</span>
+                <span style={{ color: 'var(--ink-faint)' }} aria-hidden="true">
+                  {' → '}
+                </span>
+                <span style={{ opacity: leg === 'second' ? 1 : 0.35 }}>{toShape.name}</span>
+              </span>
+            ) : (
+              label
+            )}
           </div>
         )}
 
+        {isTransition && toShape && showDiagram ? (
+          <div className="row" style={{ gap: 4, flexWrap: 'nowrap', marginTop: 12 }}>
+            <div style={{ opacity: leg === 'first' ? 1 : 0.35 }}>
+              <ChordDiagram shape={shape} width={150} tuningId={tuningId} />
+            </div>
+            <div style={{ opacity: leg === 'second' ? 1 : 0.35 }}>
+              <ChordDiagram shape={toShape} width={150} tuningId={tuningId} />
+            </div>
+          </div>
+        ) : showDiagram ? (
+          <div className={wrong ? 'shake' : ''} key={`${snapshot.presentationKey}-${phase}`}>
+            <ChordDiagram
+              shape={activeShape}
+              width={300}
+              tuningId={tuningId}
+              stringLabels
+              {...(diagnosis ? { diagnosis } : {})}
+            />
+          </div>
+        ) : null}
+
         {isEarTraining && !reveal ? (
-          <div style={{ marginTop: 14 }}>
-            <button onClick={() => void hearIt()} disabled={playingChord}>
-              {playingChord ? 'Listening…' : 'Play it again'}
-            </button>
-          </div>
+          <button style={{ marginTop: 20 }} onClick={() => void hearIt()} disabled={playingChord}>
+            {playingChord ? 'Listening…' : 'Play it again'}
+          </button>
         ) : null}
 
-        {isTransition && machine.state.transitionMs !== null ? (
-          <div className="pill ok" style={{ marginTop: 16, display: 'inline-block' }}>
-            changed in {(machine.state.transitionMs / 1000).toFixed(1)}s
-          </div>
-        ) : null}
-
-        {phase === 'retry' && lastVerdict?.kind === 'incorrect' ? (
-          <div className="banner bad" style={{ marginTop: 20, textAlign: 'left' }}>
-            {lastVerdict.perString
-              .map(describeDiagnosis)
-              .filter((s): s is string => s !== null)
-              .slice(0, 2)
-              .map((s) => (
-                <div key={s}>{s}</div>
-              ))}
+        {nudge ? (
+          <div className="nudge" style={{ marginTop: 14 }}>
+            {nudge.arrow ? (
+              <span className="arrow" aria-hidden="true">
+                {nudge.arrow}
+              </span>
+            ) : null}
+            {nudge.text}
           </div>
         ) : null}
 
         {message ? (
-          <div className="banner warn" style={{ marginTop: 20 }}>
+          <div className="banner warn" style={{ marginTop: 14 }}>
             {message}
           </div>
         ) : null}
 
-        {reveal ? (
-          <p className="muted" style={{ marginTop: 16, marginBottom: 0 }}>
-            Play it as shown and we'll move on. No penalty for taking a moment.
-          </p>
+        {isTransition && machine.state.transitionMs !== null ? (
+          <div className="pill ok" style={{ marginTop: 14 }}>
+            {(machine.state.transitionMs / 1000).toFixed(1)}s
+          </div>
+        ) : null}
+
+        {/* Listening, and visibly so. The bars move with the room, so "it isn't hearing
+            me" and "it heard me and I was wrong" never look the same. */}
+        {!wrong && !message ? (
+          <div
+            className="push-down"
+            style={{
+              paddingBottom: 34,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 18,
+            }}
+          >
+            <LevelBars engine={engine} count={5} height={44} className="small" />
+            <span className="muted">listening</span>
+          </div>
         ) : null}
       </div>
 
-      {/* The verdict is conveyed visually by colour, a mark and text; this carries the
-          same information to a screen reader without stealing focus. */}
-      <p aria-live="polite" className="sr-only">
-        {announce(machine.state, label)}
-      </p>
+      {liveRegion}
 
-      <div className="row spread">
-        <button onClick={onFinish}>End session</button>
-        <div className="row">
-          {machine.offerOverride ? (
-            <button onClick={machine.override}>I played that right</button>
-          ) : null}
-          {/* Always available. The reveal phase otherwise only ends on a correct play,
-              which assumes the learner is physically able to form the shape — meeting a
-              first barre chord, they often aren't, and abandoning the session shouldn't be
-              the only way out. */}
-          <button onClick={onSetAside}>Can't play this yet</button>
+      {/* The learner is the authority on what they played: a chord the detector keeps
+          getting wrong is a bug on our side, and the override is logged as one. */}
+      {wrong || machine.offerOverride ? (
+        <button onClick={machine.override} style={{ width: '100%' }}>
+          That was right
+        </button>
+      ) : null}
+
+      {/* There is always a way out of a card (invariant 11). Reveal assumes the shape can
+          be formed at all — meeting a first barre chord it often can't be — so this stays
+          reachable from the first wrong strum onwards, and grades Again rather than
+          punishing. It is absent only while nothing has gone wrong yet, where offering an
+          escape from a card the learner hasn't attempted would be noise. */}
+      {wrong || reveal || machine.offerOverride ? (
+        <div className="row" style={{ justifyContent: 'center', marginTop: 16 }}>
+          <button className="link" onClick={onSetAside}>
+            Can't play this yet
+          </button>
         </div>
-      </div>
-      {!machine.offerOverride ? (
-        <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>
-          Keep your hands on the uke — it advances by itself.
-        </p>
       ) : null}
     </div>
   );

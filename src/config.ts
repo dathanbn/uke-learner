@@ -181,6 +181,27 @@ export const CONFIG = {
      *  this constant stays put as the nominal. */
     a4Hz: 440,
   },
+
+  /**
+   * The on-screen input meter.
+   *
+   * Display only — nothing here feeds detection. It exists because "can it actually hear
+   * me?" is the first thing a learner wonders, and a meter that moves with the room is the
+   * only honest answer. Never fake movement while the input is silent: a meter that twitches
+   * at nothing teaches them to distrust everything else the app says.
+   */
+  meter: {
+    /** RMS mapped to an empty meter — matches verdict.minRms, below which we hear nothing. */
+    floorRms: 0.004,
+    /** RMS mapped to a full meter: roughly a firm strum at a propped-up phone's distance. */
+    fullRms: 0.15,
+    /** Bar height at silence, so the meter reads as resting rather than dead. */
+    restingScale: 0.18,
+    /** Per-frame smoothing. Rising fast keeps a strum feeling instant; falling slowly keeps
+     *  the meter readable rather than strobing. */
+    attack: 0.5,
+    release: 0.12,
+  },
 } as const;
 
 export type Config = typeof CONFIG;

@@ -21,7 +21,7 @@ import { SessionScreen } from './SessionScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { SummaryScreen } from './SummaryScreen';
 import { WelcomeScreen } from './WelcomeScreen';
-import { TunerPanel } from './TunerPanel';
+import { TuneInScreen } from './TuneInScreen';
 import './theme.css';
 
 type Screen = 'home' | 'calibrate' | 'session' | 'summary' | 'debug' | 'settings' | 'welcome';
@@ -32,6 +32,12 @@ const SECONDS_PER_CARD: [PresentationType, number][] = [
   ['ear_to_play', 10],
   ['transition', 12],
 ];
+
+/** Long enough for four green dots to register as an answer, short enough not to wait. */
+const READY_HOLD_MS = 900;
+
+/** Pause before listening for another strum, so a peg can actually be turned first. */
+const REARM_MS = 1200;
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('home');
@@ -228,6 +234,25 @@ export function App() {
 
   useEffect(() => () => void engineRef.current?.stop(), []);
 
+  const ready = calibration?.kind === 'in_tune' || calibration?.kind === 'auto_adjusted';
+
+  // In tune: go. Tuning is folded into the start of a session precisely so that it is not
+  // a step — one strum, four green dots, and the first card is already on screen.
+  useEffect(() => {
+    if (screen !== 'calibrate' || !ready) return;
+    const id = setTimeout(() => void startSession(), READY_HOLD_MS);
+    return () => clearTimeout(id);
+  }, [screen, ready, startSession]);
+
+  // Not in tune: listen again by itself. Someone with a peg between their fingers should
+  // be able to strum, adjust, strum — asking them to reach for a "check again" button
+  // between every attempt is the whole friction this screen exists to remove.
+  useEffect(() => {
+    if (screen !== 'calibrate' || ready || !calibration || arpeggioNext !== null) return;
+    const id = setTimeout(() => engineRef.current?.calibrate(settings.tuningId), REARM_MS);
+    return () => clearTimeout(id);
+  }, [screen, ready, calibration, arpeggioNext, settings.tuningId]);
+
   if (screen === 'welcome' && needsWelcome) {
     return (
       <WelcomeScreen
@@ -280,61 +305,22 @@ export function App() {
   }
 
   if (screen === 'calibrate') {
-    const ready = calibration?.kind === 'in_tune' || calibration?.kind === 'auto_adjusted';
-    // An instrument that won't come into tune must not block practice outright. Somebody
-    // with a cheap uke that simply cannot intonate, or an old string that won't hold, is
-    // still better served drilling shapes than being locked out of their own app.
-    const canProceedAnyway = calibration !== null && !ready;
     return (
-      <div className="app">
-        <h1>Let's hear your ukulele</h1>
-        <p>Strum all four strings once, fairly firmly.</p>
-
-        {micStatus && !micStatus.rawAudio ? (
-          <div className="banner bad">
-            Your browser is applying voice processing to the microphone despite being asked
-            not to. It's tuned for speech and will mangle the sound of the instrument, so
-            detection may be unreliable. Another browser will work better.
-          </div>
-        ) : null}
-        {micStatus?.warning ? <div className="banner warn">{micStatus.warning}</div> : null}
-
-        <TunerPanel
-          outcome={calibration}
-          listening
-          tuningId={settings.tuningId}
-          arpeggioNext={arpeggioNext}
-          onArpeggio={(startArp) => {
-            setArpeggioNext(startArp ? 0 : null);
-            setCalibration(null);
-            engineRef.current?.calibrateArpeggio(startArp ? settings.tuningId : null);
-          }}
-          onRecalibrate={() => {
-            setCalibration(null);
-            setArpeggioNext(null);
-            engineRef.current?.calibrateArpeggio(null);
-            engineRef.current?.calibrate(settings.tuningId);
-          }}
-        />
-
-        <div className="row spread">
-          <button onClick={() => void goHome()}>Back</button>
-          <div className="row">
-            {canProceedAnyway ? (
-              <button onClick={() => void startSession()}>Practise anyway</button>
-            ) : null}
-            <button className="primary" onClick={() => void startSession()} disabled={!ready}>
-              {ready ? 'Start practising' : 'Waiting for a strum…'}
-            </button>
-          </div>
-        </div>
-        {canProceedAnyway ? (
-          <p className="muted" style={{ marginTop: 10 }}>
-            You can practise on an out-of-tune instrument — the app will just be less sure
-            of itself, and you'll be learning shapes against sounds that aren't quite right.
-          </p>
-        ) : null}
-      </div>
+      <TuneInScreen
+        engine={engineRef.current}
+        calibration={calibration}
+        micStatus={micStatus}
+        arpeggioNext={arpeggioNext}
+        tuningId={settings.tuningId}
+        ready={ready}
+        onBack={() => void goHome()}
+        onStart={() => void startSession()}
+        onArpeggio={(startArp) => {
+          setArpeggioNext(startArp ? 0 : null);
+          setCalibration(null);
+          engineRef.current?.calibrateArpeggio(startArp ? settings.tuningId : null);
+        }}
+      />
     );
   }
 

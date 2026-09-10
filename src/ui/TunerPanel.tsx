@@ -1,17 +1,31 @@
 import type { CalibrationOutcome } from '../audio/calibration';
-import { describeCalibration } from '../audio/calibration';
 import { CONFIG } from '../config';
-import { noteName } from '../music/pitch';
+import { noteLetter } from '../music/pitch';
 import { getTuning } from '../music/tunings';
 import type { StringIndex } from '../types';
+
+/** Cents shown either side of centre on a needle track. */
+const SPAN = 50;
+
+/** At most this many strings get a needle row — past two it stops being a nudge. */
+const MAX_ROWS = 2;
+
+interface StringState {
+  string: StringIndex;
+  note: string;
+  /** Deviation with the global offset removed — the only part the player can fix. */
+  rel: number | null;
+  inTune: boolean;
+}
 
 /**
  * Tuner readout.
  *
- * The needle shows each string's deviation *after* the global offset is removed, because
- * that is the only part the player can do anything about. An instrument uniformly 40 cents
- * flat is in tune with itself — showing four needles pinned to the left would tell them to
- * fix something that isn't broken.
+ * Four dots and, when something is actually out, one red row per offending string. The
+ * needle shows deviation *after* the global offset is removed, because that is the only
+ * part the player can do anything about: an instrument uniformly 40 cents flat is in tune
+ * with itself, and four needles pinned left would send them chasing a problem they don't
+ * have.
  */
 export function TunerPanel({
   outcome,
@@ -20,6 +34,7 @@ export function TunerPanel({
   arpeggioNext,
   tuningId = 'high-g',
   listening,
+  controls = true,
 }: {
   outcome: CalibrationOutcome | null;
   onRecalibrate: () => void;
@@ -29,109 +44,104 @@ export function TunerPanel({
   arpeggioNext?: StringIndex | null;
   tuningId?: string;
   listening: boolean;
+  /** Show the re-arm button. Off where the parent re-arms listening by itself. */
+  controls?: boolean;
 }) {
-  const offset = outcome && outcome.kind !== 'unusable' ? outcome.offsetCents : 0;
-  const span = 50; // cents shown either side of centre
-  const arpeggioRunning = arpeggioNext !== undefined && arpeggioNext !== null;
   const openNotes = getTuning(tuningId).openNotes;
-  // Offering the arpeggio only once the strum has actually struggled keeps the simple
-  // path simple; a strum is one action and this is four.
+  const arpeggioRunning = arpeggioNext !== undefined && arpeggioNext !== null;
+  const offset = outcome && outcome.kind !== 'unusable' ? outcome.offsetCents : 0;
+  // Offering the arpeggio only once the strum has actually struggled keeps the simple path
+  // simple: a strum is one action and this is four.
   const suggestArpeggio =
-    onArpeggio !== undefined &&
-    (outcome?.kind === 'unusable' || outcome?.kind === 'needs_tuning');
+    onArpeggio !== undefined && (outcome?.kind === 'unusable' || outcome?.kind === 'needs_tuning');
+
+  const byString = new Map(outcome?.readings.map((r) => [r.string, r]) ?? []);
+  const strings: StringState[] = ([0, 1, 2, 3] as StringIndex[]).map((i) => {
+    const reading = byString.get(i);
+    const rel =
+      reading && reading.deviationCents !== null ? reading.deviationCents - offset : null;
+    return {
+      string: i,
+      note: noteLetter(reading?.expected ?? openNotes[i]),
+      rel,
+      inTune: rel !== null && Math.abs(rel) < CONFIG.calibration.ignoreBelowCents,
+    };
+  });
+  const off = strings.filter((s) => s.rel !== null && !s.inTune).slice(0, MAX_ROWS);
 
   return (
-    <div className="card">
-      <div className="row spread" style={{ marginBottom: 12 }}>
-        <div>
-          <h2>Tuning</h2>
-          <p style={{ margin: 0 }}>
-            Strum all four strings once. Anything the instrument agrees with itself on gets
-            absorbed automatically.
-          </p>
-        </div>
-        <div className="row">
-          {suggestArpeggio && !arpeggioRunning ? (
-            <button onClick={() => onArpeggio?.(true)} disabled={!listening}>
-              Go string by string
-            </button>
-          ) : null}
-          {arpeggioRunning ? (
-            <button onClick={() => onArpeggio?.(false)}>Cancel</button>
-          ) : (
-            <button onClick={onRecalibrate} disabled={!listening}>
-              {outcome ? 'Check again' : 'Strum to calibrate'}
-            </button>
-          )}
-        </div>
+    <div style={{ width: '100%' }}>
+      <div className="string-tiles">
+        {strings.map((s) => (
+          <div className="string-tile" key={s.string}>
+            <div className="note">{s.note}</div>
+            <div
+              className={`dot ${s.rel === null ? 'unheard' : s.inTune ? 'ok' : 'off'}`}
+              role="img"
+              aria-label={`${s.note} string ${
+                s.rel === null
+                  ? 'not heard'
+                  : s.inTune
+                    ? 'in tune'
+                    : `${Math.abs(Math.round(s.rel))} cents ${s.rel > 0 ? 'sharp' : 'flat'}`
+              }`}
+            />
+          </div>
+        ))}
       </div>
 
       {arpeggioRunning ? (
-        <div className="banner ok">
-          Play the <strong>{noteName(openNotes[arpeggioNext] ?? openNotes[0]!)}</strong> string
-          on its own — {4 - arpeggioNext}
-          {arpeggioNext === 3 ? 'st' : arpeggioNext === 2 ? 'nd' : arpeggioNext === 1 ? 'rd' : 'th'}{' '}
-          from the bottom. One string at a time reads far more precisely than a strum.
+        <div className="banner ok" style={{ marginTop: 20, marginBottom: 0 }}>
+          Play the <strong>{noteLetter(openNotes[arpeggioNext] ?? openNotes[0])}</strong> string on
+          its own — one at a time reads far more precisely than a strum.
         </div>
-      ) : outcome ? (
-        <div
-          className={`banner ${
-            outcome.kind === 'needs_tuning' || outcome.kind === 'unusable' ? 'warn' : 'ok'
-          }`}
-        >
-          {describeCalibration(outcome)}
-        </div>
-      ) : null}
-
-      {!arpeggioRunning && outcome && outcome.kind !== 'unusable'
-        ? outcome.readings.map((r) => {
-            const rel = r.deviationCents === null ? null : r.deviationCents - offset;
-            const inTune = rel !== null && Math.abs(rel) < CONFIG.calibration.ignoreBelowCents;
-            const pos = rel === null ? 50 : 50 + Math.max(-50, Math.min(50, (rel / span) * 50));
-            return (
-              <div className="tuner-row" key={r.string}>
-                <strong>{noteName(r.expected)}</strong>
-                <div
-                  className="tuner-track"
-                  role="img"
-                  aria-label={
-                    rel === null
-                      ? `${noteName(r.expected)} string not heard`
-                      : `${noteName(r.expected)} string ${Math.abs(Math.round(rel))} cents ${
-                          rel > 0 ? 'sharp' : 'flat'
-                        }`
-                  }
-                >
-                  <div className="centre" />
-                  <div
-                    className={`needle ${inTune ? 'ok' : ''}`}
-                    style={{ left: `calc(${pos}% - 3px)` }}
-                  />
-                </div>
-                <span className="muted mono">
-                  {rel === null
-                    ? 'not heard'
-                    : `${rel > 0 ? '+' : ''}${Math.round(rel)}¢${inTune ? ' ✓' : ''}`}
-                </span>
+      ) : (
+        off.map((s) => {
+          const rel = s.rel ?? 0;
+          const pos = 50 + Math.max(-50, Math.min(50, (rel / SPAN) * 50));
+          return (
+            <div className="tuner-row" style={{ marginTop: 20 }} key={s.string}>
+              <span className="note">{s.note}</span>
+              <div className="track">
+                <span className="centre" />
+                <span className="needle" style={{ left: `${pos}%` }} />
               </div>
-            );
-          })
-        : null}
+              {/* Flat sits left of centre and wants winding up; sharp is the mirror. The
+                  arrow is the instruction — the number of cents would mean nothing to a
+                  beginner and there is nowhere on a ukulele to dial it in. */}
+              <span className="dir" aria-label={rel > 0 ? 'tune down' : 'tune up'}>
+                {rel > 0 ? '↓' : '↑'}
+              </span>
+            </div>
+          );
+        })
+      )}
 
-      {outcome?.kind === 'auto_adjusted' ? (
-        <p className="muted" style={{ marginTop: 10, marginBottom: 0 }}>
-          The detector is now listening at {Math.abs(Math.round(outcome.offsetCents))} cents{' '}
-          {outcome.offsetCents > 0 ? 'above' : 'below'} concert pitch, so you can practise
-          without retuning. Chords are intervals — a uniform offset changes none of them.
-        </p>
+      {outcome?.kind === 'unusable' && !arpeggioRunning ? (
+        <div className="banner warn" style={{ marginTop: 20, marginBottom: 0 }}>
+          {outcome.reason === 'no_signal'
+            ? 'Strum all four, a little louder.'
+            : 'More than a semitone out — tune roughly by ear first.'}
+        </div>
       ) : null}
 
-      {outcome?.kind === 'needs_tuning' ? (
-        <p className="muted" style={{ marginTop: 10, marginBottom: 0 }}>
-          This part can’t be absorbed: the strings disagree with each other, so the chords
-          themselves are wrong, not just their pitch. Practising through it would train your
-          ear on the wrong intervals.
-        </p>
+      {(suggestArpeggio && !arpeggioRunning) || arpeggioRunning || controls ? (
+        <div className="row" style={{ justifyContent: 'center', gap: 8, marginTop: 20 }}>
+          {arpeggioRunning ? (
+            <button className="link" onClick={() => onArpeggio?.(false)}>
+              Cancel
+            </button>
+          ) : suggestArpeggio ? (
+            <button className="link" onClick={() => onArpeggio?.(true)} disabled={!listening}>
+              One string at a time
+            </button>
+          ) : null}
+          {controls && !arpeggioRunning ? (
+            <button className="link" onClick={onRecalibrate} disabled={!listening}>
+              {outcome ? 'Check again' : 'Strum to calibrate'}
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
