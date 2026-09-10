@@ -369,9 +369,12 @@ export function SessionScreen({
         </button>
       ) : null}
 
-      {/* Reveal assumes the shape can be formed at all. Meeting a first barre chord it
-          often can't be, and abandoning the session must not be the only way out. */}
-      {reveal ? (
+      {/* There is always a way out of a card (invariant 11). Reveal assumes the shape can
+          be formed at all — meeting a first barre chord it often can't be — so this stays
+          reachable from the first wrong strum onwards, and grades Again rather than
+          punishing. It is absent only while nothing has gone wrong yet, where offering an
+          escape from a card the learner hasn't attempted would be noise. */}
+      {wrong || reveal || machine.offerOverride ? (
         <div className="row" style={{ justifyContent: 'center', marginTop: 16 }}>
           <button className="link" onClick={onSetAside}>
             Can't play this yet
