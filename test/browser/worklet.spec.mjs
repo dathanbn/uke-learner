@@ -54,7 +54,7 @@ try {
 
   await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' });
   await page.click('text=Got it');
-  await page.locator('.row.spread', { hasText: 'Detector debug' }).getByRole('button').click();
+  await page.getByRole('button', { name: 'Detector' }).click();
   await page.waitForSelector('text=Self-test');
   await page.locator('.row.spread', { hasText: 'Self-test' }).getByRole('button').click();
 
