@@ -17,8 +17,8 @@ export default defineConfig({
         name: 'uke-learner — chord practice',
         short_name: 'uke-learner',
         description: 'Spaced-repetition ukulele chord practice that listens while you play.',
-        theme_color: '#fdf8f2',
-        background_color: '#fdf8f2',
+        theme_color: '#faf5ec',
+        background_color: '#faf5ec',
         display: 'standalone',
         orientation: 'portrait',
         icons: [

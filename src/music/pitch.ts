@@ -42,6 +42,9 @@ export const noteName = (note: MidiNote): string => {
   return `${NAMES[pc]}${Math.floor(note / 12) - 1}`;
 };
 
+/** Note name without the octave: "G4" → "G". There is only one G string to tune. */
+export const noteLetter = (note: MidiNote): string => noteName(note).replace(/\d+$/, '');
+
 export const pitchClass = (note: MidiNote): number => ((note % 12) + 12) % 12;
 
 /** Sounding pitch of a string stopped at a fret. */

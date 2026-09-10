@@ -11,13 +11,13 @@ import { displayStreak, type StreakState } from '../srs/streak';
  * chord gym, not a teacher, and the most useful thing it can say at the end is "here is
  * what you can now go and play".
  */
-const SONGS: { title: string; chords: string[] }[] = [
-  { title: 'Riptide — Vance Joy', chords: ['Am', 'G', 'C', 'F'] },
-  { title: "I'm Yours — Jason Mraz", chords: ['C', 'G', 'Am', 'F'] },
+const SONGS: { title: string; artist?: string; chords: string[] }[] = [
+  { title: 'Riptide', artist: 'Vance Joy', chords: ['Am', 'G', 'C', 'F'] },
+  { title: "I'm Yours", artist: 'Jason Mraz', chords: ['C', 'G', 'Am', 'F'] },
   { title: 'Stand By Me', chords: ['C', 'Am', 'F', 'G7'] },
-  { title: 'Hey Soul Sister — Train', chords: ['C', 'G', 'Am', 'F'] },
+  { title: 'Hey Soul Sister', artist: 'Train', chords: ['C', 'G', 'Am', 'F'] },
   { title: 'Somewhere Over the Rainbow', chords: ['C', 'Em', 'Am', 'F', 'G'] },
-  { title: 'Three Little Birds — Bob Marley', chords: ['C', 'F', 'G'] },
+  { title: 'Three Little Birds', artist: 'Bob Marley', chords: ['C', 'F', 'G'] },
   { title: 'Twist and Shout', chords: ['C', 'F', 'G7'] },
 ];
 
@@ -37,76 +37,98 @@ export function SummaryScreen({
   const accuracy = total ? Math.round((firstTry / total) * 100) : 0;
   const overrides = logs.filter((l) => l.overridden).length;
   const setAside = logs.filter((l) => l.setAside).length;
-
-  const tomorrow = new Date(Date.now() + 86_400_000);
-  const dueTomorrow = cards.filter((c) => !Scheduler.isNew(c) && Scheduler.isDue(c, tomorrow)).length;
+  const days = displayStreak(streak);
 
   const known = new Set(
     cards.filter((c) => !Scheduler.isNew(c)).map((c) => getShape(c.shapeId).name),
   );
-  const playable = SONGS.filter((s) => s.chords.every((c) => known.has(c))).slice(0, 3);
+  const playable = SONGS.filter((s) => s.chords.every((c) => known.has(c))).slice(0, 2);
 
   return (
     <div className="app">
-      <h1>Nice session</h1>
+      <h1 style={{ marginTop: 8, marginBottom: 26 }}>Done</h1>
 
-      <div className="card">
-        <div className="row spread">
-          <div className="stack">
-            <span className="muted">Cards</span>
-            <strong style={{ fontSize: 26 }}>{total}</strong>
-          </div>
-          <div className="stack">
-            <span className="muted">First try</span>
-            <strong style={{ fontSize: 26 }}>{accuracy}%</strong>
-          </div>
-          <div className="stack">
-            <span className="muted">Due tomorrow</span>
-            <strong style={{ fontSize: 26 }}>{dueTomorrow}</strong>
-          </div>
-          <div className="stack">
-            <span className="muted">Streak</span>
-            <strong style={{ fontSize: 26 }}>{displayStreak(streak)}</strong>
-          </div>
+      <div className="tiles" style={{ marginBottom: 14 }}>
+        <div className="tile">
+          <div className="figure">{total}</div>
+          <div className="label">chords played</div>
+        </div>
+        <div className="tile accent">
+          <div className="figure">{accuracy}%</div>
+          <div className="label">first try</div>
         </div>
       </div>
 
+      {days > 0 ? (
+        <div
+          className="row"
+          style={{
+            gap: 12,
+            background: 'var(--accent-soft)',
+            borderRadius: 'var(--radius)',
+            padding: 18,
+            marginBottom: 26,
+            flexWrap: 'nowrap',
+          }}
+        >
+          <span
+            style={{ width: 12, height: 12, borderRadius: 999, background: 'var(--accent)' }}
+            aria-hidden="true"
+          />
+          <span style={{ fontSize: 22, fontWeight: 500 }}>{days}</span>
+          <span className="muted" style={{ color: 'var(--ink-soft)', fontSize: 15 }}>
+            {days === 1 ? 'day' : 'days in a row'}
+          </span>
+        </div>
+      ) : null}
+
       {playable.length ? (
-        <div className="card">
-          <h2>You can play these now</h2>
-          <ul style={{ paddingLeft: 18, margin: 0 }}>
+        <>
+          <div className="eyebrow">You can play</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {playable.map((s) => (
-              <li key={s.title} style={{ color: 'var(--ink-soft)', marginBottom: 6 }}>
-                <strong style={{ color: 'var(--ink)' }}>{s.title}</strong>{' '}
-                <span className="muted">— {s.chords.join(' · ')}</span>
-              </li>
+              <div className="card" style={{ marginBottom: 0 }} key={s.title}>
+                <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>
+                  {s.title}
+                  {s.artist ? (
+                    <span className="muted" style={{ fontWeight: 500 }}>
+                      {' '}
+                      · {s.artist}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="row" style={{ gap: 8 }}>
+                  {s.chords.map((c) => (
+                    <span className="chip" key={c}>
+                      {c}
+                    </span>
+                  ))}
+                </div>
+              </div>
             ))}
-          </ul>
-          <p className="muted" style={{ marginTop: 12, marginBottom: 0 }}>
-            Drilling chords builds recall; playing songs builds everything else. Go and play
-            one.
-          </p>
-        </div>
+          </div>
+        </>
       ) : null}
 
-      {overrides > 0 ? (
-        <div className="banner warn">
-          You had to override the detector {overrides} time{overrides > 1 ? 's' : ''}. That's
-          a bug on our side, not yours — those are logged so the chords it mishears can be
-          fixed.
-        </div>
-      ) : null}
+      <div className="push-down" style={{ paddingTop: 26 }}>
+        {overrides > 0 ? (
+          <div className="banner warn">
+            The detector needed overriding {overrides} time{overrides > 1 ? 's' : ''} — that's a
+            bug on our side, and those are logged so the chords it mishears can be fixed.
+          </div>
+        ) : null}
 
-      {setAside > 0 ? (
-        <div className="banner ok">
-          You set {setAside} chord{setAside > 1 ? 's' : ''} aside. That's the right call —
-          they'll come back tomorrow, and hands need time to build the shape.
-        </div>
-      ) : null}
+        {setAside > 0 ? (
+          <div className="banner ok">
+            You set {setAside} chord{setAside > 1 ? 's' : ''} aside. That's the right call —
+            they'll come back tomorrow, and hands need time to build the shape.
+          </div>
+        ) : null}
 
-      <button className="primary" onClick={onHome} style={{ width: '100%' }}>
-        Done
-      </button>
+        <button className="primary" onClick={onHome} style={{ width: '100%' }}>
+          Done
+        </button>
+      </div>
     </div>
   );
 }
